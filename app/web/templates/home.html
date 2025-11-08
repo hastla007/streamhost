@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% set title = "Dashboard" %}
+{% block content %}
+<section class="grid">
+  <article class="card span-2">
+    <header>
+      <h2>Stream Overview</h2>
+      <p class="subtitle">Live status, bitrate, and encoder health.</p>
+    </header>
+    <div class="card-body">
+      <div class="stats">
+        <div>
+          <p class="label">Status</p>
+          <p class="value status-online">Online</p>
+        </div>
+        <div>
+          <p class="label">Current Bitrate</p>
+          <p class="value">4,000 kbps</p>
+        </div>
+        <div>
+          <p class="label">Uptime</p>
+          <p class="value">12h 42m</p>
+        </div>
+      </div>
+      <div class="chart-placeholder">
+        <p>Bitrate history graph will render here.</p>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <header>
+      <h2>Upcoming Playlist</h2>
+    </header>
+    <ul class="list">
+      <li>
+        <span class="title">Neon Skyline</span>
+        <span class="meta">Sci-Fi • 02:15:00</span>
+      </li>
+      <li>
+        <span class="title">Midnight Chase</span>
+        <span class="meta">Action • 01:52:00</span>
+      </li>
+      <li>
+        <span class="title">Ocean Dreams</span>
+        <span class="meta">Documentary • 00:48:00</span>
+      </li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <header>
+      <h2>Alerts</h2>
+    </header>
+    <ul class="list alerts">
+      <li class="ok">All systems nominal.</li>
+      <li class="warning">Upcoming maintenance window in 3 hours.</li>
+    </ul>
+  </article>
+</section>
+{% endblock %}

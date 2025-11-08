@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% set title = "Settings" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Settings</h2>
+    <p class="subtitle">Configure stream, integrations, and notifications.</p>
+  </div>
+  <button class="btn primary">Save Changes</button>
+</section>
+
+<section class="settings-grid">
+  <form class="card">
+    <h3>Stream Parameters</h3>
+    <label>
+      Resolution
+      <select>
+        <option>1920x1080</option>
+        <option>1280x720</option>
+        <option>854x480</option>
+      </select>
+    </label>
+    <label>
+      Bitrate (kbps)
+      <input type="number" value="4000" />
+    </label>
+    <label>
+      FPS
+      <input type="number" value="30" />
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" checked />
+      Enable hardware acceleration
+    </label>
+  </form>
+
+  <form class="card">
+    <h3>Integrations</h3>
+    <label>
+      YouTube Stream Key
+      <input type="password" value="xxxx-xxxx-xxxx" />
+    </label>
+    <label>
+      Discord Webhook
+      <input type="url" placeholder="https://discord.com/api/webhooks/..." />
+    </label>
+    <label>
+      SMTP Sender Email
+      <input type="email" value="alerts@streamhost.io" />
+    </label>
+  </form>
+
+  <form class="card span-2">
+    <h3>Notifications</h3>
+    <p class="subtitle">
+      Configure alerts for stream health, playlist completion, or ingestion
+      failures.
+    </p>
+    <div class="toggles">
+      <label class="switch">
+        <input type="checkbox" checked />
+        <span>Stream offline alerts</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" />
+        <span>Playlist gaps</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" checked />
+        <span>Encoder temperature warnings</span>
+      </label>
+    </div>
+  </form>
+</section>
+{% endblock %}

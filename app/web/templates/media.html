@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% set title = "Media Gallery" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Media Library</h2>
+    <p class="subtitle">Manage VOD assets, posters, and overlays.</p>
+  </div>
+  <div class="actions">
+    <button class="btn ghost">Upload Media</button>
+    <button class="btn primary">Scan Directory</button>
+  </div>
+</section>
+
+<section class="grid media-grid">
+  <article class="card media-card">
+    <img src="https://placehold.co/600x338" alt="Neon Skyline" />
+    <div class="media-meta">
+      <h3>Neon Skyline</h3>
+      <p class="meta">Sci-Fi • 02:15:00 • 2022</p>
+      <div class="chip-group">
+        <span class="chip">Dolby Vision</span>
+        <span class="chip">5.1 Audio</span>
+      </div>
+    </div>
+  </article>
+  <article class="card media-card">
+    <img src="https://placehold.co/600x338" alt="Midnight Chase" />
+    <div class="media-meta">
+      <h3>Midnight Chase</h3>
+      <p class="meta">Action • 01:52:00 • 2021</p>
+      <div class="chip-group">
+        <span class="chip">HDR10</span>
+        <span class="chip">Stereo</span>
+      </div>
+    </div>
+  </article>
+  <article class="card media-card">
+    <img src="https://placehold.co/600x338" alt="Ocean Dreams" />
+    <div class="media-meta">
+      <h3>Ocean Dreams</h3>
+      <p class="meta">Documentary • 00:48:00 • 2019</p>
+      <div class="chip-group">
+        <span class="chip">HD</span>
+        <span class="chip">Stereo</span>
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}
