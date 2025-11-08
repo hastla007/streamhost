@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% set title = "Playlist" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Playlist Management</h2>
+    <p class="subtitle">Review and curate the live stream lineup.</p>
+  </div>
+  <form method="post" action="/playlist" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="text" name="title" placeholder="Title" required />
+    <input type="text" name="genre" placeholder="Genre" required />
+    <input type="number" name="duration_minutes" placeholder="Duration (min)" min="1" required />
+    <button class="btn primary" type="submit">Add to Queue</button>
+  </form>
+</section>
+
+<section class="grid playlist-layout">
+  <article class="card span-2">
+    <header>
+      <h3>Current Queue</h3>
+      <p class="subtitle">Drag and drop to reorder (UI placeholder).</p>
+    </header>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Title</th>
+          <th>Genre</th>
+          <th>Duration</th>
+          <th>Schedule</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in playlist %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ item.title }}</td>
+          <td>{{ item.genre|title }}</td>
+          <td>{{ (item.duration_seconds // 3600)|int }}h {{ ((item.duration_seconds % 3600) // 60)|int }}m</td>
+          <td>
+            {% if item.scheduled_start %}
+            {{ item.scheduled_start.strftime('%H:%M') }}
+            {% else %}
+            Pending
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/playlist/remove">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              <input type="hidden" name="item_id" value="{{ item.id }}" />
+              <button class="btn ghost" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="empty">No media queued.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="card">
+    <header>
+      <h3>Automation Profiles</h3>
+    </header>
+    <ul class="list">
+      <li>
+        <span class="title">Default</span>
+        <span class="meta">1080p • 4 Mbps • 30 FPS</span>
+      </li>
+      <li>
+        <span class="title">High Quality</span>
+        <span class="meta">1080p • 6 Mbps • 60 FPS</span>
+      </li>
+      <li>
+        <span class="title">Low Bandwidth</span>
+        <span class="meta">720p • 2.5 Mbps • 30 FPS</span>
+      </li>
+    </ul>
+  </article>
+</section>
+{% endblock %}
