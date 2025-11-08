@@ -6,45 +6,35 @@
     <h2>Media Library</h2>
     <p class="subtitle">Manage VOD assets, posters, and overlays.</p>
   </div>
-  <div class="actions">
-    <button class="btn ghost">Upload Media</button>
-    <button class="btn primary">Scan Directory</button>
-  </div>
+  <form method="post" action="/media/upload" enctype="multipart/form-data" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="text" name="title" placeholder="Title" required />
+    <input type="text" name="genre" placeholder="Genre" required />
+    <input type="number" name="duration_minutes" min="1" placeholder="Duration (min)" required />
+    <input type="file" name="file" accept="video/*" required />
+    <button class="btn primary" type="submit">Upload</button>
+  </form>
 </section>
 
 <section class="grid media-grid">
+  {% for item in media %}
   <article class="card media-card">
-    <img src="https://placehold.co/600x338" alt="Neon Skyline" />
     <div class="media-meta">
-      <h3>Neon Skyline</h3>
-      <p class="meta">Sci-Fi • 02:15:00 • 2022</p>
+      <h3>{{ item.title }}</h3>
+      <p class="meta">{{ item.genre|title }} • {{ (item.duration_seconds // 3600)|int }}h {{ ((item.duration_seconds % 3600) // 60)|int }}m</p>
       <div class="chip-group">
-        <span class="chip">Dolby Vision</span>
-        <span class="chip">5.1 Audio</span>
+        <span class="chip">Path: {{ item.file_path }}</span>
+        <span class="chip">Added {{ item.created_at.strftime('%Y-%m-%d') }}</span>
       </div>
     </div>
   </article>
-  <article class="card media-card">
-    <img src="https://placehold.co/600x338" alt="Midnight Chase" />
+  {% else %}
+  <article class="card media-card empty">
     <div class="media-meta">
-      <h3>Midnight Chase</h3>
-      <p class="meta">Action • 01:52:00 • 2021</p>
-      <div class="chip-group">
-        <span class="chip">HDR10</span>
-        <span class="chip">Stereo</span>
-      </div>
+      <h3>No media ingested</h3>
+      <p class="meta">Upload a video asset to get started.</p>
     </div>
   </article>
-  <article class="card media-card">
-    <img src="https://placehold.co/600x338" alt="Ocean Dreams" />
-    <div class="media-meta">
-      <h3>Ocean Dreams</h3>
-      <p class="meta">Documentary • 00:48:00 • 2019</p>
-      <div class="chip-group">
-        <span class="chip">HD</span>
-        <span class="chip">Stereo</span>
-      </div>
-    </div>
-  </article>
+  {% endfor %}
 </section>
 {% endblock %}

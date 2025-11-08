@@ -6,7 +6,13 @@
     <h2>Playlist Management</h2>
     <p class="subtitle">Review and curate the live stream lineup.</p>
   </div>
-  <button class="btn primary">Generate New Playlist</button>
+  <form method="post" action="/playlist" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="text" name="title" placeholder="Title" required />
+    <input type="text" name="genre" placeholder="Genre" required />
+    <input type="number" name="duration_minutes" placeholder="Duration (min)" min="1" required />
+    <button class="btn primary" type="submit">Add to Queue</button>
+  </form>
 </section>
 
 <section class="grid playlist-layout">
@@ -27,30 +33,32 @@
         </tr>
       </thead>
       <tbody>
+        {% for item in playlist %}
         <tr>
-          <td>1</td>
-          <td>Neon Skyline</td>
-          <td>Sci-Fi</td>
-          <td>02:15:00</td>
-          <td>Now Playing</td>
-          <td><button class="btn ghost">Skip</button></td>
+          <td>{{ loop.index }}</td>
+          <td>{{ item.title }}</td>
+          <td>{{ item.genre|title }}</td>
+          <td>{{ (item.duration_seconds // 3600)|int }}h {{ ((item.duration_seconds % 3600) // 60)|int }}m</td>
+          <td>
+            {% if item.scheduled_start %}
+            {{ item.scheduled_start.strftime('%H:%M') }}
+            {% else %}
+            Pending
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/playlist/remove">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+              <input type="hidden" name="item_id" value="{{ item.id }}" />
+              <button class="btn ghost" type="submit">Remove</button>
+            </form>
+          </td>
         </tr>
+        {% else %}
         <tr>
-          <td>2</td>
-          <td>Midnight Chase</td>
-          <td>Action</td>
-          <td>01:52:00</td>
-          <td>22:05</td>
-          <td><button class="btn ghost">Move Up</button></td>
+          <td colspan="6" class="empty">No media queued.</td>
         </tr>
-        <tr>
-          <td>3</td>
-          <td>Ocean Dreams</td>
-          <td>Documentary</td>
-          <td>00:48:00</td>
-          <td>23:59</td>
-          <td><button class="btn ghost">Move Up</button></td>
-        </tr>
+        {% endfor %}
       </tbody>
     </table>
   </article>

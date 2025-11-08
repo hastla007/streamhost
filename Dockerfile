@@ -29,5 +29,4 @@ RUN mkdir -p /app/data/movies /app/data/cache /app/data/assets /app/data/backups
 
 EXPOSE 8000
 
-ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["python -m app.main start"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

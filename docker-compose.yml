@@ -8,7 +8,6 @@ services:
     container_name: streamhost_app
     env_file:
       - .env
-    command: python -m app.main start
     ports:
       - "8000:8000"
     volumes:
@@ -23,10 +22,12 @@ services:
   db:
     image: postgres:15
     container_name: streamhost_db
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: moviestream
-      POSTGRES_USER: streamadmin
-      POSTGRES_PASSWORD: your_secure_password
+      POSTGRES_DB: ${POSTGRES_DB:-moviestream}
+      POSTGRES_USER: ${POSTGRES_USER:-streamadmin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD not set}
     ports:
       - "5432:5432"
     volumes:

@@ -71,9 +71,10 @@ sudo systemctl start postgresql
 sudo systemctl enable postgresql
 
 # Create database and user
+export POSTGRES_PASSWORD="$(openssl rand -base64 18)"
 sudo -u postgres psql <<'EOF'
 CREATE DATABASE moviestream;
-CREATE USER streamadmin WITH PASSWORD 'your_secure_password';
+CREATE USER streamadmin WITH PASSWORD '${POSTGRES_PASSWORD}';
 GRANT ALL PRIVILEGES ON DATABASE moviestream TO streamadmin;
 \q
 EOF
@@ -122,7 +123,7 @@ redis-cli ping  # Should return PONG
    YOUTUBE_REFRESH_TOKEN=your_refresh_token
 
    # Database
-   DATABASE_URL=postgresql://streamadmin:your_password@localhost:5432/moviestream
+DATABASE_URL=postgresql://streamadmin:${POSTGRES_PASSWORD}@localhost:5432/moviestream
 
    # Redis
    REDIS_URL=redis://localhost:6379/0
@@ -245,7 +246,7 @@ scheduled_events:
 
 ```bash
 source venv/bin/activate
-python main.py start
+uvicorn app.main:app --reload
 ```
 
 ### Systemd Service (Production)
@@ -290,159 +291,87 @@ python manage.py generate-playlist \
 
 ## 9. Web Dashboard and API
 
-- Admin dashboard: `http://localhost:8000/admin`
-  - Default credentials (change immediately):
-    - Username: `admin`
-    - Password: `changeme`
+The FastAPI service renders the management dashboard at `http://localhost:8000/`. The
+navigation pages are now backed by live endpoints and enforce CSRF protection and
+rate limiting for all state-changing operations.
 
 ### API Examples
 
-Authenticate to obtain a JWT access token:
+- Health probe:
 
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/token \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "your_password"}'
-```
+  ```bash
+  curl http://localhost:8000/api/v1/stream/health
+  ```
 
-Use the token for subsequent API requests:
+- Stream telemetry:
 
-```bash
-# Get current stream status
-curl -X GET http://localhost:8000/api/v1/stream/status \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+  ```bash
+  curl http://localhost:8000/api/v1/stream/status
+  ```
 
-# Skip the current movie
-curl -X POST http://localhost:8000/api/v1/stream/skip \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+- Playlist management (requires a CSRF token issued via the browser session):
 
-# Add a movie to the queue
-curl -X POST http://localhost:8000/api/v1/playlist/queue \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"movie_id": 42, "priority": 1}'
-```
+  ```bash
+  curl -X POST http://localhost:8000/api/v1/playlist \
+    -H "X-CSRF-Token: YOUR_SESSION_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"title": "Sample", "genre": "drama", "duration_seconds": 3600}'
+  ```
+
+- Media ingestion with validation:
+
+  ```bash
+  curl -X POST http://localhost:8000/api/v1/media/upload \
+    -H "X-CSRF-Token: YOUR_SESSION_TOKEN" \
+    -F "title=Sample" \
+    -F "genre=action" \
+    -F "duration_seconds=4200" \
+    -F "file=@movie.mp4"
+  ```
 
 ## 10. Project Structure Overview
 
 ```
-youtube-24-7-streaming/
+streamhost/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                      # Application entry point
-│   ├── config.py                    # Configuration loader
-│   │
-│   ├── models/                      # Database models
+│   ├── main.py
+│   ├── api/
 │   │   ├── __init__.py
-│   │   ├── movie.py
-│   │   ├── playlist.py
-│   │   ├── stream_log.py
-│   │   └── user.py
-│   │
-│   ├── services/                    # Business logic
-│   │   ├── __init__.py
-│   │   ├── video_processor.py       # FFmpeg operations
-│   │   ├── stream_manager.py        # RTMP streaming
-│   │   ├── playlist_manager.py      # Queue management
-│   │   ├── youtube_api.py           # YouTube API client
-│   │   └── monitor.py               # Health monitoring
-│   │
-│   ├── api/                         # REST API
-│   │   ├── __init__.py
-│   │   ├── routes/
-│   │   │   ├── stream.py
-│   │   │   ├── playlist.py
-│   │   │   ├── movies.py
-│   │   │   └── auth.py
-│   │   └── dependencies.py
-│   │
-│   ├── web/                         # Web interface
-│   │   ├── __init__.py
-│   │   ├── static/
-│   │   │   ├── css/
-│   │   │   ├── js/
-│   │   │   └── images/
-│   │   └── templates/
-│   │       ├── dashboard.html
-│   │       ├── movies.html
-│   │       └── playlist.html
-│   │
-│   ├── utils/                       # Utilities
-│   │   ├── __init__.py
-│   │   ├── logger.py
-│   │   ├── alerts.py
-│   │   ├── validators.py
-│   │   └── helpers.py
-│   │
-│   └── workers/                     # Background tasks
+│   │   └── routes/
+│   │       ├── media.py
+│   │       ├── playlist.py
+│   │       ├── stream.py
+│   │       └── system.py
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── logging_config.py
+│   │   └── security.py
+│   ├── schemas.py
+│   ├── services/
+│   │   ├── state.py
+│   │   └── video_processor.py
+│   └── web/
 │       ├── __init__.py
-│       ├── stream_worker.py
-│       └── monitor_worker.py
-│
-├── config/                          # Configuration files
-│   ├── .env.example
-│   ├── stream_profiles.yaml
-│   ├── playlist_rules.yaml
-│   └── logging.yaml
-│
-├── data/                            # Data storage
-│   ├── movies/                      # Movie files
-│   ├── cache/                       # Transcoded cache
-│   ├── assets/                      # Logos, overlays
-│   └── backups/                     # Database backups
-│
-├── scripts/                         # Utility scripts
-│   ├── setup.sh                     # Initial setup
-│   ├── backup.sh                    # Backup script
-│   ├── restore.sh                   # Restore script
-│   ├── import_movies.py             # Bulk movie import
-│   └── health_check.sh              # Health check
-│
-├── tests/                           # Test suite
-│   ├── unit/
-│   │   ├── test_video_processor.py
-│   │   ├── test_stream_manager.py
-│   │   └── test_playlist.py
-│   ├── integration/
-│   │   └── test_streaming_flow.py
-│   └── fixtures/
-│       └── test_videos/
-│
-├── docker/                          # Docker configuration
-│   ├── Dockerfile
-│   ├── docker-compose.yml
-│   ├── nginx.conf
-│   └── supervisord.conf
-│
-├── docs/                            # Documentation
-│   ├── setup.md
-│   ├── api.md
-│   ├── deployment.md
-│   ├── troubleshooting.md
-│   └── architecture.md
-│
-├── monitoring/                      # Monitoring configs
-│   ├── prometheus.yml
-│   ├── grafana/
-│   │   └── dashboards/
-│   │       └── stream_dashboard.json
-│   └── alertmanager.yml
-│
-├── .github/                         # GitHub configs
-│   └── workflows/
-│       ├── ci.yml
-│       └── deploy.yml
-│
-├── migrations/                      # Database migrations
-│   └── versions/
-│
-├── requirements.txt                 # Python dependencies
-├── requirements-dev.txt             # Dev dependencies
-├── setup.py                         # Package setup
-├── pytest.ini                       # Test configuration
+│       ├── routes.py
+│       ├── static/
+│       │   ├── css/
+│       │   │   └── style.css
+│       │   └── js/
+│       │       └── app.js
+│       └── templates/
+│           ├── base.html
+│           ├── home.html
+│           ├── media.html
+│           ├── playlist.html
+│           └── settings.html
+├── data/
+│   └── .gitkeep
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+├── .env.example
 ├── .gitignore
-├── .dockerignore
-├── LICENSE
 └── README.md
 ```
 
@@ -485,22 +414,14 @@ launch the application alongside PostgreSQL and Redis with a single command.
 
 | Method | Endpoint                     | Description                    |
 | ------ | ---------------------------- | ------------------------------ |
-| GET    | `/api/v1/stream/status`      | Get current stream status      |
-| POST   | `/api/v1/stream/start`       | Start streaming                |
-| POST   | `/api/v1/stream/stop`        | Stop streaming                 |
-| POST   | `/api/v1/stream/skip`        | Skip current movie             |
-| GET    | `/api/v1/stream/health`      | Health check                   |
-| GET    | `/api/v1/stream/metrics`     | Stream metrics                 |
-| GET    | `/api/v1/playlist/queue`     | Get current queue              |
-| POST   | `/api/v1/playlist/generate`  | Generate new playlist          |
-| POST   | `/api/v1/playlist/add`       | Add movie to queue             |
-| DELETE | `/api/v1/playlist/{id}`      | Remove from queue              |
-| PUT    | `/api/v1/playlist/{id}`      | Update queue position          |
-| GET    | `/api/v1/movies`             | List all movies                |
-| GET    | `/api/v1/movies/{id}`        | Get movie details              |
-| POST   | `/api/v1/movies`             | Add new movie                  |
-| PUT    | `/api/v1/movies/{id}`        | Update movie                   |
-| DELETE | `/api/v1/movies/{id}`        | Delete movie                   |
-| GET    | `/api/v1/movies/stats`       | Movie statistics               |
+| GET    | `/api/v1/stream/status`      | Retrieve stream telemetry      |
+| GET    | `/api/v1/stream/health`      | Lightweight liveness probe     |
+| GET    | `/api/v1/playlist`           | Upcoming playlist items        |
+| POST   | `/api/v1/playlist`           | Append an item (requires CSRF) |
+| DELETE | `/api/v1/playlist/{id}`      | Remove an item (requires CSRF) |
+| GET    | `/api/v1/media`              | Media library listing          |
+| POST   | `/api/v1/media/upload`       | Upload media (requires CSRF)   |
+| GET    | `/api/v1/system/settings`    | Active stream configuration    |
+| PUT    | `/api/v1/system/settings`    | Update configuration (CSRF)    |
 
 Full interactive documentation is available at `http://localhost:8000/docs` (Swagger UI).
