@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% set title = "Dashboard" %}
+{% block content %}
+<section class="grid">
+  <article class="card span-2">
+    <header>
+      <h2>Stream Overview</h2>
+      <p class="subtitle">Live status, bitrate, and encoder health.</p>
+    </header>
+    <div class="card-body">
+      <div class="stats" data-stream-status>
+        <div>
+          <p class="label">Status</p>
+          <p class="value status-{{ stream.status }}" data-field="status">{{ stream.status|title }}</p>
+        </div>
+        <div>
+          <p class="label">Current Bitrate</p>
+          <p class="value" data-field="bitrate">{{ stream.bitrate_kbps }} kbps</p>
+        </div>
+        <div>
+          <p class="label">Uptime (hrs)</p>
+          <p class="value" data-field="uptime">{{ '%.2f'|format(uptime_hours) }}</p>
+        </div>
+      </div>
+      <div class="chart-placeholder">
+        <p>Bitrate history graph will render here.</p>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <header>
+      <h2>Upcoming Playlist</h2>
+    </header>
+    <ul class="list">
+      {% for item in playlist %}
+      <li>
+        <span class="title">{{ item.title }}</span>
+        <span class="meta">{{ item.genre|title }} • {{ (item.duration_seconds // 3600)|int }}h {{ ((item.duration_seconds % 3600) // 60)|int }}m</span>
+      </li>
+      {% else %}
+      <li class="empty">No items scheduled.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="card">
+    <header>
+      <h2>Alerts</h2>
+    </header>
+    <ul class="list alerts">
+      {% for alert in alerts %}
+      <li class="{{ alert.level }}">
+        <strong>{{ alert.level|title }}:</strong> {{ alert.message }}
+      </li>
+      {% else %}
+      <li class="ok">All systems nominal.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}

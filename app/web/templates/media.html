@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% set title = "Media Gallery" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Media Library</h2>
+    <p class="subtitle">Manage VOD assets, posters, and overlays.</p>
+  </div>
+  <form method="post" action="/media/upload" enctype="multipart/form-data" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="text" name="title" placeholder="Title" required />
+    <input type="text" name="genre" placeholder="Genre" required />
+    <input type="number" name="duration_minutes" min="1" placeholder="Duration (min)" required />
+    <input type="file" name="file" accept="video/*" required />
+    <button class="btn primary" type="submit">Upload</button>
+  </form>
+</section>
+
+<section class="grid media-grid">
+  {% for item in media %}
+  <article class="card media-card">
+    <div class="media-meta">
+      <h3>{{ item.title }}</h3>
+      <p class="meta">{{ item.genre|title }} • {{ (item.duration_seconds // 3600)|int }}h {{ ((item.duration_seconds % 3600) // 60)|int }}m</p>
+      <div class="chip-group">
+        <span class="chip">Path: {{ item.file_path }}</span>
+        <span class="chip">Added {{ item.created_at.strftime('%Y-%m-%d') }}</span>
+      </div>
+    </div>
+  </article>
+  {% else %}
+  <article class="card media-card empty">
+    <div class="media-meta">
+      <h3>No media ingested</h3>
+      <p class="meta">Upload a video asset to get started.</p>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}
