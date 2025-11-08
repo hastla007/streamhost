@@ -8,9 +8,12 @@
   </div>
   <form method="post" action="/playlist" class="inline-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-    <input type="text" name="title" placeholder="Title" required />
-    <input type="text" name="genre" placeholder="Genre" required />
-    <input type="number" name="duration_minutes" placeholder="Duration (min)" min="1" required />
+    <select name="media_id" required>
+      <option value="" disabled selected>Select media</option>
+      {% for media_item in media %}
+      <option value="{{ media_item.id }}">{{ media_item.title }} • {{ media_item.genre|title }}</option>
+      {% endfor %}
+    </select>
     <button class="btn primary" type="submit">Add to Queue</button>
   </form>
 </section>

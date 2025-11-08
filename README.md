@@ -344,12 +344,23 @@ streamhost/
 │   │       ├── stream.py
 │   │       └── system.py
 │   ├── core/
+│   │   ├── auth.py
 │   │   ├── config.py
 │   │   ├── logging_config.py
 │   │   └── security.py
+│   ├── db/
+│   │   ├── base.py
+│   │   ├── init_db.py
+│   │   └── session.py
+│   ├── models/
+│   │   └── __init__.py
 │   ├── schemas.py
 │   ├── services/
-│   │   ├── state.py
+│   │   ├── __init__.py
+│   │   ├── media_service.py
+│   │   ├── playlist_service.py
+│   │   ├── settings_service.py
+│   │   ├── stream_manager.py
 │   │   └── video_processor.py
 │   └── web/
 │       ├── __init__.py
@@ -412,16 +423,25 @@ launch the application alongside PostgreSQL and Redis with a single command.
 
 ## 12. API Reference Summary
 
-| Method | Endpoint                     | Description                    |
-| ------ | ---------------------------- | ------------------------------ |
-| GET    | `/api/v1/stream/status`      | Retrieve stream telemetry      |
-| GET    | `/api/v1/stream/health`      | Lightweight liveness probe     |
-| GET    | `/api/v1/playlist`           | Upcoming playlist items        |
-| POST   | `/api/v1/playlist`           | Append an item (requires CSRF) |
-| DELETE | `/api/v1/playlist/{id}`      | Remove an item (requires CSRF) |
-| GET    | `/api/v1/media`              | Media library listing          |
-| POST   | `/api/v1/media/upload`       | Upload media (requires CSRF)   |
-| GET    | `/api/v1/system/settings`    | Active stream configuration    |
-| PUT    | `/api/v1/system/settings`    | Update configuration (CSRF)    |
+All JSON endpoints (except `/stream/health`) require a Bearer token obtained via
+the OAuth2 password flow. Use the default `admin` account (or one you create)
+to request a token and include the returned `Authorization: Bearer` header in
+subsequent calls. State-changing requests additionally expect a CSRF token in
+`X-CSRF-Token`.
 
+| Method | Endpoint                        | Description                              |
+| ------ | ------------------------------- | ---------------------------------------- |
+| POST   | `/api/v1/auth/token`            | Obtain a JWT access token                 |
+| GET    | `/api/v1/auth/me`               | Inspect the authenticated user            |
+| GET    | `/api/v1/stream/status`         | Retrieve stream telemetry (auth required) |
+| POST   | `/api/v1/stream/start`          | Launch streaming for a media ID          |
+| POST   | `/api/v1/stream/stop`           | Terminate the running stream             |
+| GET    | `/api/v1/stream/health`         | Lightweight liveness probe               |
+| GET    | `/api/v1/playlist`              | Upcoming playlist items                  |
+| POST   | `/api/v1/playlist`              | Append an item (auth + CSRF)             |
+| DELETE | `/api/v1/playlist/{id}`         | Remove an entry (auth + CSRF)            |
+| GET    | `/api/v1/media`                 | List uploaded media                      |
+| POST   | `/api/v1/media/upload`          | Upload media (auth + CSRF)               |
+| GET    | `/api/v1/system/settings`       | Retrieve persisted settings              |
+| PUT    | `/api/v1/system/settings`       | Update settings (auth + CSRF)            |
 Full interactive documentation is available at `http://localhost:8000/docs` (Swagger UI).

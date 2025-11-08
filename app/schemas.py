@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class StreamStatus(BaseModel):
@@ -31,10 +31,20 @@ class PlaylistItem(BaseModel):
 
 
 class PlaylistCreate(BaseModel):
-    title: str = Field(min_length=3, max_length=120)
-    genre: str = Field(min_length=2, max_length=40)
-    duration_seconds: int = Field(gt=0, lt=12 * 3600)
+    title: Optional[str] = Field(None, min_length=3, max_length=120)
+    genre: Optional[str] = Field(None, min_length=2, max_length=40)
+    duration_seconds: Optional[int] = Field(None, gt=0, lt=12 * 3600)
     scheduled_start: Optional[datetime] = None
+    media_id: Optional[int] = Field(None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_payload(self) -> "PlaylistCreate":
+        if self.media_id is None:
+            if not all([self.title, self.genre, self.duration_seconds]):
+                raise ValueError(
+                    "title, genre, and duration_seconds are required when media_id is not provided"
+                )
+        return self
 
 
 class PlaylistResponse(BaseModel):

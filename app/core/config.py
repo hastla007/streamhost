@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -44,13 +44,45 @@ class Settings(BaseModel):
     prometheus_port: int = Field(9090, validation_alias="PROMETHEUS_PORT")
 
     jwt_secret: str = Field("change-me", validation_alias="JWT_SECRET")
+    jwt_algorithm: str = Field("HS256", validation_alias="JWT_ALGORITHM")
+    jwt_expiry_minutes: int = Field(60, validation_alias="JWT_EXPIRY_MINUTES")
+    admin_default_password: str = Field("changeme", validation_alias="ADMIN_DEFAULT_PASSWORD")
 
     rate_limit_requests: int = Field(60, validation_alias="RATE_LIMIT_REQUESTS")
     rate_limit_window: int = Field(60, validation_alias="RATE_LIMIT_WINDOW")
     max_upload_mb: int = Field(512, validation_alias="MAX_UPLOAD_MB")
+    media_root: str = Field(str(BASE_DIR / "data" / "movies"), validation_alias="MOVIES_DIR")
 
     class Config:
         populate_by_name = True
+
+    @field_validator("secret_key")
+    @classmethod
+    def validate_secret_key(cls, value: str) -> str:
+        """Ensure the application secret key is strong and customised."""
+
+        if value in {"change-me", "changeme", "secret"}:
+            raise ValueError(
+                "SECRET_KEY must be changed from the default. "
+                "Generate a new key with: openssl rand -base64 32"
+            )
+        if len(value) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long")
+        return value
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def validate_jwt_secret(cls, value: str) -> str:
+        """Ensure the JWT signing secret is sufficiently strong."""
+
+        if value in {"change-me", "changeme", "secret"}:
+            raise ValueError(
+                "JWT_SECRET must be changed from the default. "
+                "Generate a new key with: openssl rand -base64 32"
+            )
+        if len(value) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters long")
+        return value
 
     @property
     def max_upload_bytes(self) -> int:

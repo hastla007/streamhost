@@ -1,16 +1,18 @@
 """Server-rendered pages for the StreamHost dashboard."""
 from __future__ import annotations
 
-from datetime import datetime
-
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.orm import Session
 from starlette import status
 from starlette.templating import Jinja2Templates
 
+from app.core.database import get_db
 from app.core.security import form_csrf_protect, generate_csrf_token
-from app.schemas import MediaItem, PlaylistCreate, PlaylistItem, SystemSettings
-from app.services.state import app_state, deque_counter
+from app.schemas import PlaylistCreate, SystemSettings
+from app.models import MediaAsset
+from app.services import media_service, playlist_service, settings_service
+from app.services.stream_manager import stream_manager
 
 router = APIRouter()
 
@@ -26,52 +28,66 @@ def _common_context(request: Request) -> dict:
 
 
 @router.get("/", response_class=HTMLResponse)
-def home(request: Request) -> HTMLResponse:
+def home(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     context = _common_context(request)
+    playlist_preview = playlist_service.list_playlist(db)[:3]
+    stream = stream_manager.status()
     context.update(
         {
-            "stream": app_state.stream_status,
-            "alerts": app_state.alerts,
-            "playlist": app_state.get_playlist()[:3],
-            "uptime_hours": round(app_state.stream_status.uptime_seconds / 3600, 2),
+            "stream": stream,
+            "alerts": [],
+            "playlist": playlist_preview,
+            "uptime_hours": round(stream.uptime_seconds / 3600, 2),
         }
     )
     return templates.TemplateResponse("home.html", context)
 
 
 @router.get("/playlist", response_class=HTMLResponse)
-def playlist(request: Request) -> HTMLResponse:
+def playlist(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     context = _common_context(request)
-    context.update({"playlist": app_state.get_playlist()})
+    context.update({"playlist": playlist_service.list_playlist(db), "media": media_service.list_media(db)})
     return templates.TemplateResponse("playlist.html", context)
 
 
 @router.post("/playlist", status_code=status.HTTP_303_SEE_OTHER)
 async def playlist_submit(
     request: Request,
-    title: str = Form(...),
-    genre: str = Form(...),
-    duration_minutes: int = Form(...),
+    media_id: int = Form(...),
     csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
 ) -> RedirectResponse:
     form_csrf_protect(request, csrf_token)
-    payload = PlaylistCreate(title=title, genre=genre, duration_seconds=duration_minutes * 60)
-    item = PlaylistItem(id=next(deque_counter), **payload.model_dump())
-    app_state.add_playlist_item(item)
+    asset = db.get(MediaAsset, media_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
+
+    payload = PlaylistCreate(
+        title=asset.title,
+        genre=asset.genre,
+        duration_seconds=asset.duration_seconds,
+        media_id=asset.id,
+    )
+    playlist_service.add_playlist_item(db, payload)
     return RedirectResponse(url="/playlist", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/playlist/remove", status_code=status.HTTP_303_SEE_OTHER)
-async def playlist_remove(request: Request, item_id: int = Form(...), csrf_token: str = Form(...)) -> RedirectResponse:
+async def playlist_remove(
+    request: Request,
+    item_id: int = Form(...),
+    csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
     form_csrf_protect(request, csrf_token)
-    app_state.remove_playlist_item(item_id)
+    playlist_service.remove_playlist_item(db, item_id)
     return RedirectResponse(url="/playlist", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/media", response_class=HTMLResponse)
-def media(request: Request) -> HTMLResponse:
+def media(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     context = _common_context(request)
-    context.update({"media": app_state.media})
+    context.update({"media": media_service.list_media(db)})
     return templates.TemplateResponse("media.html", context)
 
 
@@ -83,25 +99,23 @@ async def media_upload(
     duration_minutes: int = Form(...),
     file: UploadFile = File(...),
     csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
 ) -> RedirectResponse:
     form_csrf_protect(request, csrf_token)
-    filename = file.filename or "upload.bin"
-    media_item = MediaItem(
-        id=next(deque_counter),
+    await media_service.create_media(
+        db,
         title=title,
         genre=genre,
         duration_seconds=duration_minutes * 60,
-        file_path=f"/data/movies/{filename}",
-        created_at=datetime.utcnow(),
+        upload=file,
     )
-    app_state.media.append(media_item)
     return RedirectResponse(url="/media", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_view(request: Request) -> HTMLResponse:
+def settings_view(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     context = _common_context(request)
-    context.update({"settings": app_state.settings})
+    context.update({"settings": settings_service.get_settings(db)})
     return templates.TemplateResponse("settings.html", context)
 
 
@@ -114,6 +128,7 @@ async def settings_submit(
     hardware_accel: str = Form(...),
     contact_email: str = Form(...),
     csrf_token: str = Form(...),
+    db: Session = Depends(get_db),
 ) -> RedirectResponse:
     form_csrf_protect(request, csrf_token)
     payload = SystemSettings(
@@ -123,5 +138,5 @@ async def settings_submit(
         hardware_accel=hardware_accel,
         contact_email=contact_email,
     )
-    app_state.update_settings(payload)
+    settings_service.update_settings(db, payload)
     return RedirectResponse(url="/settings", status_code=status.HTTP_303_SEE_OTHER)

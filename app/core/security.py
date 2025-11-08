@@ -4,9 +4,10 @@ from __future__ import annotations
 import secrets
 import time
 from collections import defaultdict, deque
-from typing import Deque, Dict
+from typing import Deque, Dict, Optional
 
 from fastapi import HTTPException, Request
+from redis import Redis
 from starlette import status
 
 from app.core.config import settings
@@ -51,7 +52,55 @@ class RateLimiter:
         hits.append(now)
 
 
-rate_limiter = RateLimiter(settings.rate_limit_requests, settings.rate_limit_window)
+redis_client: Optional[Redis] = None
+
+try:  # pragma: no cover - depends on external service
+    redis_client = Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=5,
+    )
+    redis_client.ping()
+except Exception as exc:  # pragma: no cover - external dependency
+    redis_client = None
+    print(f"WARNING: Redis unavailable, falling back to in-memory rate limiting: {exc}")
+
+
+class DistributedRateLimiter:
+    """Redis-backed limiter with in-memory fallback for single instance use."""
+
+    def __init__(self, calls: int, period: int) -> None:
+        self.calls = calls
+        self.period = period
+        self.use_redis = redis_client is not None
+        self._memory_fallback = RateLimiter(calls, period) if not self.use_redis else None
+
+    def check(self, identifier: str) -> None:
+        if not self.use_redis:
+            assert self._memory_fallback is not None
+            self._memory_fallback.check(identifier)
+            return
+
+        assert redis_client is not None
+        key = f"rate_limit:{identifier}"
+        now = time.time()
+
+        pipe = redis_client.pipeline()
+        pipe.zremrangebyscore(key, 0, now - self.period)
+        pipe.zcard(key)
+        pipe.zadd(key, {str(now): now})
+        pipe.expire(key, self.period)
+        results = pipe.execute()
+        request_count = results[1]
+
+        if request_count >= self.calls:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded. Try again in {self.period} seconds.",
+            )
+
+
+rate_limiter = DistributedRateLimiter(settings.rate_limit_requests, settings.rate_limit_window)
 
 
 def enforce_rate_limit(request: Request) -> None:
