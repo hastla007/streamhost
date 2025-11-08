@@ -259,9 +259,9 @@ sudo journalctl -u moviestream -f
 ### Docker Workflow
 
 ```bash
-docker-compose up -d
-docker-compose logs -f app
-docker-compose down
+docker compose up --build -d
+docker compose logs -f app
+docker compose down
 ```
 
 ## 8. Managing the Movie Library
@@ -446,7 +446,42 @@ youtube-24-7-streaming/
 └── README.md
 ```
 
-## 11. API Reference Summary
+## 11. Containerized Deployment
+
+StreamHost includes a production-ready Dockerfile and `docker-compose.yml` to
+launch the application alongside PostgreSQL and Redis with a single command.
+
+### Build and Run with Docker Compose
+
+1. Ensure you have a `.env` file populated with the settings described earlier in
+   this guide.
+2. Build and start the stack:
+
+   ```bash
+   docker compose up --build
+   ```
+
+   This will build the StreamHost image, start PostgreSQL and Redis, and expose
+   the web interface on <http://localhost:8000>.
+
+3. Stop the stack when you're done:
+
+   ```bash
+   docker compose down
+   ```
+
+   Add the `-v` flag if you want to remove the PostgreSQL and Redis volumes.
+
+### Customizing the Services
+
+- Override the default command or environment variables in
+  `docker-compose.yml` to adapt the stack to your infrastructure.
+- Mount additional host directories into `/app/data` if you want the container
+  to access an existing movie library.
+- Update the PostgreSQL credentials in `docker-compose.yml` (and the matching
+  `DATABASE_URL` in `.env`) before deploying to production.
+
+## 12. API Reference Summary
 
 | Method | Endpoint                     | Description                    |
 | ------ | ---------------------------- | ------------------------------ |
