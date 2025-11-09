@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,10 @@ class PlaylistScheduler:
         request: PlaylistGenerationRequest,
     ) -> list[PlaylistItem]:
         rules = request.rules or self._default_rules
-        tz = ZoneInfo(request.timezone or "UTC")
+        try:
+            tz = ZoneInfo(request.timezone or "UTC")
+        except ZoneInfoNotFoundError:
+            tz = ZoneInfo("UTC")
         start_time = datetime.now(tz)
         target_duration = timedelta(hours=request.hours)
 

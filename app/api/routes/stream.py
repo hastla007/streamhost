@@ -1,6 +1,7 @@
 """Stream status endpoints."""
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -77,27 +78,36 @@ async def preview_asset(asset: str) -> FileResponse:
 
 
 @router.get("/health", response_model=HealthResponse)
-def health_check() -> HealthResponse:
+async def health_check() -> HealthResponse:
     """Perform dependency checks for readiness probes."""
 
     issues: list[str] = []
 
-    try:
+    def _db_check() -> None:
         with get_db_context() as db:
             db.execute(text("SELECT 1"))
+
+    try:
+        await asyncio.to_thread(_db_check)
     except Exception as exc:  # pragma: no cover - relies on infrastructure failures
         issues.append(f"Database: {exc}")
 
     try:
         if redis_client:
-            redis_client.ping()
+            await asyncio.to_thread(redis_client.ping)
         else:
             issues.append("Redis: Not connected")
     except Exception as exc:  # pragma: no cover - external dependency
         issues.append(f"Redis: {exc}")
 
     try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5, check=False)
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
         if result.returncode != 0:
             issues.append("FFmpeg: Not available")
     except Exception as exc:  # pragma: no cover - depends on ffmpeg availability

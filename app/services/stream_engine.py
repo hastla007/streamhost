@@ -96,6 +96,7 @@ class LiveStreamManager:
             self._last_error = None
             self._playlist_id = None
             self._plan = None
+            self._restart_attempts = 0
             self._cleanup_concat()
 
     async def get_metrics(self) -> StreamMetrics:
@@ -104,10 +105,11 @@ class LiveStreamManager:
         async with self._lock:
             return self._metrics
 
-    def is_running(self) -> bool:
+    async def is_running(self) -> bool:
         """Return whether FFmpeg process is currently active."""
 
-        return self._process is not None and self._process.returncode is None
+        async with self._lock:
+            return self._process is not None and self._process.returncode is None
 
     async def _launch_process(self) -> None:
         assert self._plan is not None
@@ -124,7 +126,6 @@ class LiveStreamManager:
         )
         self._started_at = datetime.now(timezone.utc)
         self._metrics = StreamMetrics()
-        self._restart_attempts = 0
 
         self._progress_task = asyncio.create_task(self._capture_progress(self._process.stdout))
         self._watchdog_task = asyncio.create_task(self._watch_process())
@@ -201,7 +202,7 @@ class LiveStreamManager:
         concat_file = playlist_dir / "playlist.txt"
         with concat_file.open("w", encoding="utf-8") as handle:
             for path in media_files:
-                normalized = path.resolve().as_posix().replace("'", "'\\''")
+                normalized = path.resolve().as_posix()
                 handle.write(f"file '{normalized}'\n")
         return concat_file
 

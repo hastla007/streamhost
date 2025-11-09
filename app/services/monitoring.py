@@ -27,7 +27,7 @@ class StreamMonitor:
         metrics = await live_stream_engine.get_metrics()
         playlist_id, started_at, last_error, _ = live_stream_engine.status_snapshot()
 
-        ffmpeg_running = live_stream_engine.is_running()
+        ffmpeg_running = await live_stream_engine.is_running()
         bitrate_target = settings.stream_bitrate
         bitrate_ok = metrics.bitrate_kbps >= int(bitrate_target * 0.7)
         dropped_ok = metrics.dropped_frames < 100

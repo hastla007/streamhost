@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, authenticate_user, create_access_token, get_current_user
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import enforce_rate_limit
 
 router = APIRouter()
 
 
-@router.post("/token")
+@router.post("/token", dependencies=[Depends(enforce_rate_limit)])
 def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
 ) -> dict[str, str]:

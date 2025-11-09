@@ -19,8 +19,8 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.Column("username", sa.String(length=50), nullable=False, unique=True),
         sa.Column("hashed_password", sa.String(length=255), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("is_admin", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("is_admin", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
 
     op.create_table(

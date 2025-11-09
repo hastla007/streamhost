@@ -36,7 +36,7 @@ class StreamManager:
         media_id: Optional[int] = None,
     ) -> StreamStatus:
         async with self._lock:
-            if live_stream_engine.is_running():
+            if await live_stream_engine.is_running():
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stream already running")
 
             destination = self._resolve_destination()
@@ -72,8 +72,15 @@ class StreamManager:
                 status="online",
                 started_at=datetime.now(timezone.utc),
             )
-            db.add(session)
-            db.flush()
+            try:
+                db.add(session)
+                db.flush()
+            except Exception as exc:
+                db.rollback()
+                await live_stream_engine.stop_stream()
+                logger.exception("Failed to persist stream session")
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to persist stream session") from exc
+
             self._session_id = session.id
 
             return await self.status()
@@ -92,7 +99,7 @@ class StreamManager:
 
     async def status(self) -> StreamStatus:
         playlist_id, started_at, last_error, metrics = live_stream_engine.status_snapshot()
-        running = live_stream_engine.is_running()
+        running = await live_stream_engine.is_running()
         uptime = 0
         if running and started_at:
             uptime = int((datetime.now(timezone.utc) - started_at).total_seconds())
