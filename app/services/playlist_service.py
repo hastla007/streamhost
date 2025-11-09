@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import asc, func, select
-from sqlalchemy.exc import InvalidRequestError, OperationalError
+from sqlalchemy import asc, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models import MediaAsset, PlaylistEntry
@@ -45,7 +44,7 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
     entry = PlaylistEntry(
         media_id=media.id,
         scheduled_start=payload.scheduled_start,
-        position=position + 1,
+        position=position,
     )
     db.add(entry)
     db.flush()
@@ -78,7 +77,7 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
     position = _current_max_position(db)
     created: list[PlaylistItem] = []
 
-    for offset, item in enumerate(planned_items, start=1):
+    for offset, item in enumerate(planned_items):
         media = db.get(MediaAsset, item.media_id)
         if media is None:
             continue
@@ -105,19 +104,13 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
 
 
 def _current_max_position(db: Session) -> int:
-    stmt = (
-        select(PlaylistEntry.position)
-        .order_by(PlaylistEntry.position.desc())
-        .limit(1)
-    )
-    try:
-        stmt = stmt.with_for_update()
-        result = db.scalar(stmt)
-    except (InvalidRequestError, OperationalError):
-        result = db.scalar(
-            select(PlaylistEntry.position).order_by(PlaylistEntry.position.desc()).limit(1)
-        )
-    return result or 0
+    """Return the next available playlist position using a locked query."""
+
+    result = db.execute(
+        text("SELECT COALESCE(MAX(position), 0) + 1 FROM playlist_entry FOR UPDATE")
+    ).scalar()
+    next_position = int(result) if result is not None else 1
+    return next_position
 
 
 def _serialize_entries(entries: list[PlaylistEntry]) -> list[PlaylistItem]:

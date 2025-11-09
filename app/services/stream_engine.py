@@ -73,31 +73,40 @@ class LiveStreamManager:
         """Terminate the running FFmpeg process and cleanup."""
 
         async with self._lock:
-            if self._watchdog_task:
+            await self._stop_locked()
+
+    async def _stop_locked(self) -> None:
+        """Internal helper to tear down state while the lock is held."""
+
+        current = asyncio.current_task()
+
+        if self._watchdog_task:
+            if self._watchdog_task is not current:
                 self._watchdog_task.cancel()
-                self._watchdog_task = None
+            self._watchdog_task = None
 
-            if self._progress_task:
+        if self._progress_task:
+            if self._progress_task is not current:
                 self._progress_task.cancel()
-                self._progress_task = None
+            self._progress_task = None
 
-            if self._process and self._process.returncode is None:
-                self._process.terminate()
-                try:
-                    await asyncio.wait_for(self._process.wait(), timeout=10)
-                except asyncio.TimeoutError:
-                    logger.warning("Force killing FFmpeg after timeout")
-                    self._process.kill()
-                    await self._process.wait()
+        if self._process and self._process.returncode is None:
+            self._process.terminate()
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning("Force killing FFmpeg after timeout")
+                self._process.kill()
+                await self._process.wait()
 
-            self._process = None
-            self._metrics = StreamMetrics()
-            self._started_at = None
-            self._last_error = None
-            self._playlist_id = None
-            self._plan = None
-            self._restart_attempts = 0
-            self._cleanup_concat()
+        self._process = None
+        self._metrics = StreamMetrics()
+        self._started_at = None
+        self._last_error = None
+        self._playlist_id = None
+        self._plan = None
+        self._restart_attempts = 0
+        self._cleanup_concat()
 
     async def get_metrics(self) -> StreamMetrics:
         """Return the most recent telemetry snapshot."""
@@ -151,18 +160,34 @@ class LiveStreamManager:
 
     async def _handle_restart(self) -> None:
         assert self._plan is not None
-        self._restart_attempts += 1
-        if self._restart_attempts > settings.stream_restart_max_attempts:
-            logger.critical("Exceeded FFmpeg restart attempts")
-            await self.stop_stream()
-            return
+
+        async with self._lock:
+            self._restart_attempts += 1
+            attempts = self._restart_attempts
+            if attempts > settings.stream_restart_max_attempts:
+                logger.critical("Exceeded FFmpeg restart attempts")
+                await self._stop_locked()
+                return
+
+            if self._process and self._process.returncode is None:
+                self._process.terminate()
+                try:
+                    await asyncio.wait_for(self._process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    self._process.kill()
+                    await self._process.wait()
+
+            self._cleanup_concat()
 
         base_delay = settings.stream_restart_base_delay
         max_delay = settings.stream_restart_max_delay
-        await asyncio.sleep(min(base_delay * self._restart_attempts, max_delay))
-        logger.info("Restarting FFmpeg", extra={"attempt": self._restart_attempts})
-        self._cleanup_concat()
-        await self._launch_process()
+        await asyncio.sleep(min(base_delay * attempts, max_delay))
+
+        async with self._lock:
+            if self._plan is None:
+                return
+            logger.info("Restarting FFmpeg", extra={"attempt": attempts})
+            await self._launch_process()
 
     async def _capture_progress(self, stream: Optional[asyncio.StreamReader]) -> None:
         if stream is None:
@@ -176,28 +201,31 @@ class LiveStreamManager:
             if not decoded or "=" not in decoded:
                 continue
             key, value = decoded.split("=", 1)
-            self._update_metrics(key, value)
+            await self._update_metrics(key, value)
 
-    def _update_metrics(self, key: str, value: str) -> None:
-        metrics = self._metrics.model_copy()
-        try:
-            if key == "frame":
-                metrics.frame = int(value)
-            elif key == "fps":
-                metrics.fps = float(value)
-            elif key == "bitrate":
-                metrics.bitrate_kbps = int(float(value.replace("kbits/s", "").strip() or 0))
-            elif key == "speed":
-                metrics.speed = float(value.replace("x", ""))
-            elif key == "drop_frames":
-                metrics.dropped_frames = int(value)
-            elif key == "buffer_level":
-                metrics.buffer_level_seconds = float(value)
-        except ValueError:
-            logger.debug("Unable to parse metric", extra={"key": key, "value": value})
-            return
+    async def _update_metrics(self, key: str, value: str) -> None:
+        async with self._lock:
+            metrics = self._metrics.model_copy()
+            try:
+                if key == "frame":
+                    metrics.frame = int(value)
+                elif key == "fps":
+                    metrics.fps = float(value)
+                elif key == "bitrate":
+                    metrics.bitrate_kbps = int(float(value.replace("kbits/s", "").strip() or 0))
+                elif key == "speed":
+                    metrics.speed = float(value.replace("x", ""))
+                elif key == "drop_frames":
+                    metrics.dropped_frames = int(value)
+                elif key == "buffer_level":
+                    metrics.buffer_level_seconds = float(value)
+                else:
+                    return
+            except ValueError:
+                logger.debug("Unable to parse metric", extra={"key": key, "value": value})
+                return
 
-        self._metrics = metrics
+            self._metrics = metrics
 
     def _create_concat_file(self, media_files: Iterable[Path]) -> Path:
         playlist_dir = Path(tempfile.mkdtemp(prefix="streamhost_playlist_"))

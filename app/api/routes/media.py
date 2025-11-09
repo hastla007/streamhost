@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
-from app.core.security import csrf_protect, enforce_rate_limit
+from app.core.security import enforce_rate_limit
 from app.schemas import DEFAULT_ERROR_RESPONSES, MediaList, MediaUploadMetadata, UploadResponse
 from app.services import media_service
 
@@ -31,7 +31,6 @@ def list_media(
     "/upload",
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(csrf_protect)],
     responses=DEFAULT_ERROR_RESPONSES,
 )
 async def upload_media(

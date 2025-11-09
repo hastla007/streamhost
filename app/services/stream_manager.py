@@ -47,6 +47,9 @@ class StreamManager:
             profiles = self._build_profiles()
             encoder, preset = self._resolve_encoder()
 
+            self._destination = None
+            self._encoder_name = "ffmpeg"
+
             plan = StreamLaunchPlan(
                 playlist_id=playlist_entry_id or 0,
                 media_files=media_files,
@@ -57,31 +60,53 @@ class StreamManager:
                 fps=settings.stream_fps,
             )
 
-            try:
-                await live_stream_engine.start_stream(plan)
-            except FileNotFoundError as exc:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-            except RuntimeError as exc:
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
-
-            self._destination = destination
-            self._encoder_name = self._encoder_display(encoder)
-
             session = StreamSession(
                 media_id=first_media_id,
-                status="online",
+                status="starting",
                 started_at=datetime.now(timezone.utc),
             )
             try:
                 db.add(session)
                 db.flush()
             except Exception as exc:
-                db.rollback()
-                await live_stream_engine.stop_stream()
                 logger.exception("Failed to persist stream session")
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to persist stream session") from exc
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to persist stream session",
+                ) from exc
 
             self._session_id = session.id
+
+            try:
+                await live_stream_engine.start_stream(plan)
+            except FileNotFoundError as exc:
+                session.status = "error"
+                db.flush()
+                self._session_id = None
+                await live_stream_engine.stop_stream()
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                session.status = "error"
+                db.flush()
+                self._session_id = None
+                await live_stream_engine.stop_stream()
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+            except Exception as exc:
+                session.status = "error"
+                db.flush()
+                self._session_id = None
+                await live_stream_engine.stop_stream()
+                logger.exception("Failed to start streaming pipeline")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to start streaming pipeline",
+                ) from exc
+
+            session.status = "online"
+            db.flush()
+
+            self._destination = destination
+            self._encoder_name = self._encoder_display(encoder)
 
             return await self.status()
 

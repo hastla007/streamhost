@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.database import get_db, get_db_context
-from app.core.security import csrf_protect, enforce_rate_limit, redis_client
+from app.core.security import enforce_rate_limit, redis_client
 from app.schemas import DEFAULT_ERROR_RESPONSES, HealthResponse, StreamStatus
 from app.services.stream_engine import PREVIEW_DIR
 from app.services.stream_manager import stream_manager
@@ -37,7 +37,7 @@ async def get_stream_status() -> StreamStatus:
     "/start",
     response_model=StreamStatus,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(csrf_protect), Depends(get_current_user)],
+    dependencies=[Depends(get_current_user)],
     responses=DEFAULT_ERROR_RESPONSES,
 )
 async def start_stream(media_id: int, db: Session = Depends(get_db)) -> StreamStatus:
@@ -49,7 +49,7 @@ async def start_stream(media_id: int, db: Session = Depends(get_db)) -> StreamSt
 @router.post(
     "/stop",
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(csrf_protect), Depends(get_current_user)],
+    dependencies=[Depends(get_current_user)],
     responses=DEFAULT_ERROR_RESPONSES,
 )
 async def stop_stream(db: Session = Depends(get_db)) -> None:
@@ -59,9 +59,15 @@ async def stop_stream(db: Session = Depends(get_db)) -> None:
 
 
 def _resolve_preview_asset(name: str) -> Path:
+    if "/" in name or "\\" in name or ".." in name:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid asset name")
+
     candidate = (PREVIEW_DIR / name).resolve()
-    if not (candidate == PREVIEW_DIR or PREVIEW_DIR in candidate.parents):
+    try:
+        candidate.relative_to(PREVIEW_DIR)
+    except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview asset not found")
+
     if not candidate.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview asset not found")
     return candidate

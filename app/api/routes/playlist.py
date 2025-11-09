@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
-from app.core.security import csrf_protect, enforce_rate_limit
+from app.core.security import enforce_rate_limit
 from app.schemas import (
     DEFAULT_ERROR_RESPONSES,
     PlaylistCreate,
@@ -37,7 +37,6 @@ def list_playlist(
     "",
     response_model=PlaylistItem,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(csrf_protect)],
     responses=DEFAULT_ERROR_RESPONSES,
 )
 def add_playlist_item(payload: PlaylistCreate, db: Session = Depends(get_db)) -> PlaylistItem:
@@ -49,7 +48,6 @@ def add_playlist_item(payload: PlaylistCreate, db: Session = Depends(get_db)) ->
 @router.delete(
     "/{item_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(csrf_protect)],
     responses=DEFAULT_ERROR_RESPONSES,
 )
 def delete_playlist_item(item_id: int, db: Session = Depends(get_db)) -> None:
@@ -62,7 +60,6 @@ def delete_playlist_item(item_id: int, db: Session = Depends(get_db)) -> None:
     "/generate",
     response_model=PlaylistResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(csrf_protect)],
     responses=DEFAULT_ERROR_RESPONSES,
 )
 def generate_playlist(payload: PlaylistGenerationRequest, db: Session = Depends(get_db)) -> PlaylistResponse:
