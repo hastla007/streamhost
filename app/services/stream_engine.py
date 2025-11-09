@@ -95,6 +95,7 @@ class LiveStreamManager:
             self._started_at = None
             self._last_error = None
             self._playlist_id = None
+            self._plan = None
             self._cleanup_concat()
 
     async def get_metrics(self) -> StreamMetrics:
@@ -123,6 +124,7 @@ class LiveStreamManager:
         )
         self._started_at = datetime.now(timezone.utc)
         self._metrics = StreamMetrics()
+        self._restart_attempts = 0
 
         self._progress_task = asyncio.create_task(self._capture_progress(self._process.stdout))
         self._watchdog_task = asyncio.create_task(self._watch_process())
@@ -156,6 +158,7 @@ class LiveStreamManager:
 
         await asyncio.sleep(min(5 * self._restart_attempts, 15))
         logger.info("Restarting FFmpeg", extra={"attempt": self._restart_attempts})
+        self._cleanup_concat()
         await self._launch_process()
 
     async def _capture_progress(self, stream: Optional[asyncio.StreamReader]) -> None:

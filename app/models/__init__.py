@@ -38,6 +38,7 @@ class MediaAsset(TableNameMixin, TimestampMixin, Base):
     thumbnail_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     playlist_entries: Mapped[list["PlaylistEntry"]] = relationship(back_populates="media")
+    stream_sessions: Mapped[list["StreamSession"]] = relationship(back_populates="media")
 
 
 class PlaylistEntry(TableNameMixin, TimestampMixin, Base):
@@ -72,4 +73,4 @@ class StreamSession(TableNameMixin, TimestampMixin, Base):
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[Optional[str]] = mapped_column(Text)
 
-    media: Mapped[Optional[MediaAsset]] = relationship()
+    media: Mapped[Optional[MediaAsset]] = relationship(back_populates="stream_sessions")

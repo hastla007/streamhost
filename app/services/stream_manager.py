@@ -130,23 +130,20 @@ class StreamManager:
                 .scalars()
                 .all()
             )
-            started = False
             for entry in entries:
-                if not started and entry.id != playlist_entry_id:
-                    continue
-                started = True
-                if entry.media and entry.media.file_path:
-                    media_paths.append((entry.media_id, Path(entry.media.file_path)))
-            if not started:
+                if entry.id == playlist_entry_id or media_paths:
+                    if entry.media and entry.media.file_path:
+                        media_paths.append((entry.media_id, Path(entry.media.file_path)))
+
+            if not media_paths:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playlist entry not found")
 
-        if not media_paths and media_id:
+        elif media_id:
             media = db.get(MediaAsset, media_id)
             if media and media.file_path:
                 media_paths.append((media.id, Path(media.file_path)))
 
         if not media_paths:
-            # fall back to first items in playlist
             entries = (
                 db.execute(
                     select(PlaylistEntry).order_by(asc(PlaylistEntry.position), asc(PlaylistEntry.id))
@@ -158,12 +155,15 @@ class StreamManager:
                 if entry.media and entry.media.file_path:
                     media_paths.append((entry.media_id, Path(entry.media.file_path)))
 
+        if not media_paths:
+            return [], None
+
         missing = [path for _mid, path in media_paths if not path.exists()]
         if missing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Missing media files: {missing}")
 
         paths = [path for _mid, path in media_paths]
-        first_media_id = media_paths[0][0] if media_paths else None
+        first_media_id = media_paths[0][0]
         return paths, first_media_id
 
     def _build_profiles(self) -> list[tuple[str, int]]:

@@ -14,8 +14,8 @@ from app.core.config import settings
 from app.core.logging_config import configure_logging
 from app.core.security import generate_csrf_token
 from app.db.init_db import init_database
-from app.db.session import SessionLocal, engine
-from app.db.base import Base
+from app.db.migrate import run_migrations
+from app.db.session import SessionLocal
 from app.web.routes import router as web_router
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def create_app() -> FastAPI:
     def startup() -> None:
         """Initialise database schema and defaults."""
 
-        Base.metadata.create_all(bind=engine)
+        run_migrations()
         with SessionLocal() as db:
             init_database(db)
             db.commit()

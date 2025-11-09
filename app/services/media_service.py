@@ -119,38 +119,44 @@ async def create_media(
 ) -> MediaItem:
     """Persist an uploaded media file and return its metadata."""
 
-    destination, _received, checksum, _mime = await _save_upload_securely(upload)
-    metadata = await metadata_extractor.extract_metadata(destination)
+    destination: Path | None = None
+    try:
+        destination, _received, checksum, _mime = await _save_upload_securely(upload)
+        metadata = await metadata_extractor.extract_metadata(destination)
 
-    asset = MediaAsset(
-        title=metadata.title or title,
-        genre=genre or metadata.genre or "unknown",
-        duration_seconds=metadata.duration_seconds or duration_seconds,
-        file_path=str(destination),
-        checksum=checksum,
-        width=metadata.width,
-        height=metadata.height,
-        video_codec=metadata.video_codec,
-        audio_codec=metadata.audio_codec,
-        bitrate=metadata.bitrate,
-        frame_rate=metadata.frame_rate,
-        thumbnail_path=metadata.thumbnail_path,
-    )
-    db.add(asset)
-    db.flush()
+        asset = MediaAsset(
+            title=metadata.title or title,
+            genre=genre or metadata.genre or "unknown",
+            duration_seconds=metadata.duration_seconds or duration_seconds,
+            file_path=str(destination),
+            checksum=checksum,
+            width=metadata.width,
+            height=metadata.height,
+            video_codec=metadata.video_codec,
+            audio_codec=metadata.audio_codec,
+            bitrate=metadata.bitrate,
+            frame_rate=metadata.frame_rate,
+            thumbnail_path=metadata.thumbnail_path,
+        )
+        db.add(asset)
+        db.flush()
 
-    return MediaItem(
-        id=asset.id,
-        title=asset.title,
-        genre=asset.genre,
-        duration_seconds=asset.duration_seconds,
-        file_path=asset.file_path,
-        created_at=asset.created_at,
-        width=asset.width,
-        height=asset.height,
-        video_codec=asset.video_codec,
-        audio_codec=asset.audio_codec,
-        bitrate=asset.bitrate,
-        frame_rate=asset.frame_rate,
-        thumbnail_path=asset.thumbnail_path,
-    )
+        return MediaItem(
+            id=asset.id,
+            title=asset.title,
+            genre=asset.genre,
+            duration_seconds=asset.duration_seconds,
+            file_path=asset.file_path,
+            created_at=asset.created_at,
+            width=asset.width,
+            height=asset.height,
+            video_codec=asset.video_codec,
+            audio_codec=asset.audio_codec,
+            bitrate=asset.bitrate,
+            frame_rate=asset.frame_rate,
+            thumbnail_path=asset.thumbnail_path,
+        )
+    except Exception:
+        if destination and destination.exists():
+            destination.unlink(missing_ok=True)
+        raise

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import secrets
 import time
-from collections import defaultdict, deque
-from typing import Deque, Dict, Optional
+from collections import OrderedDict, deque
+from typing import Deque, Optional
 
 from fastapi import HTTPException, Request
 from redis import Redis
@@ -37,18 +37,26 @@ def validate_csrf(request: Request, token: str | None) -> None:
 class RateLimiter:
     """Simple in-memory token bucket for rate limiting."""
 
-    def __init__(self, calls: int, period: int) -> None:
+    def __init__(self, calls: int, period: int, max_keys: int = 10_000) -> None:
         self.calls = calls
         self.period = period
-        self._hits: Dict[str, Deque[float]] = defaultdict(deque)
+        self.max_keys = max_keys
+        self._hits: OrderedDict[str, Deque[float]] = OrderedDict()
 
     def check(self, identifier: str) -> None:
         now = time.time()
-        hits = self._hits[identifier]
+
+        if identifier not in self._hits and len(self._hits) >= self.max_keys:
+            self._hits.popitem(last=False)
+
+        hits = self._hits.setdefault(identifier, deque())
+
         while hits and now - hits[0] > self.period:
             hits.popleft()
+
         if len(hits) >= self.calls:
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded")
+
         hits.append(now)
 
 

@@ -52,7 +52,7 @@ async def stop_stream(db: Session = Depends(get_db)) -> None:
 
 def _resolve_preview_asset(name: str) -> Path:
     candidate = (PREVIEW_DIR / name).resolve()
-    if PREVIEW_DIR not in candidate.parents and candidate != PREVIEW_DIR:
+    if not (candidate == PREVIEW_DIR or PREVIEW_DIR in candidate.parents):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview asset not found")
     if not candidate.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview asset not found")

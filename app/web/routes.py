@@ -1,6 +1,8 @@
 """Server-rendered pages for the StreamHost dashboard."""
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
@@ -53,7 +55,7 @@ def playlist(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
 @router.post("/playlist", status_code=status.HTTP_303_SEE_OTHER)
 async def playlist_submit(
     request: Request,
-    media_id: int = Form(...),
+    media_id: Annotated[int, Form(ge=1)],
     csrf_token: str = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
@@ -75,7 +77,7 @@ async def playlist_submit(
 @router.post("/playlist/remove", status_code=status.HTTP_303_SEE_OTHER)
 async def playlist_remove(
     request: Request,
-    item_id: int = Form(...),
+    item_id: Annotated[int, Form(ge=1)],
     csrf_token: str = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
@@ -94,9 +96,9 @@ def media(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
 @router.post("/media/upload", status_code=status.HTTP_303_SEE_OTHER)
 async def media_upload(
     request: Request,
-    title: str = Form(...),
-    genre: str = Form(...),
-    duration_minutes: int = Form(...),
+    title: Annotated[str, Form(min_length=1, max_length=200)],
+    genre: Annotated[str, Form(min_length=1, max_length=64)],
+    duration_minutes: Annotated[int, Form(ge=1, le=600)],
     file: UploadFile = File(...),
     csrf_token: str = Form(...),
     db: Session = Depends(get_db),
@@ -122,11 +124,11 @@ def settings_view(request: Request, db: Session = Depends(get_db)) -> HTMLRespon
 @router.post("/settings", status_code=status.HTTP_303_SEE_OTHER)
 async def settings_submit(
     request: Request,
-    stream_resolution: str = Form(...),
-    stream_bitrate: int = Form(...),
-    stream_fps: int = Form(...),
-    hardware_accel: str = Form(...),
-    contact_email: str = Form(...),
+    stream_resolution: Annotated[str, Form(min_length=3, max_length=32)],
+    stream_bitrate: Annotated[int, Form(ge=500, le=20_000)],
+    stream_fps: Annotated[int, Form(ge=15, le=120)],
+    hardware_accel: Annotated[str, Form(min_length=2, max_length=32)],
+    contact_email: Annotated[str, Form(min_length=5, max_length=255)],
     csrf_token: str = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
