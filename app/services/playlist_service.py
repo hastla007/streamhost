@@ -77,17 +77,17 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
     if not planned_items:
         return []
 
-    position = _current_max_position(db)
     created: list[PlaylistItem] = []
 
-    for offset, item in enumerate(planned_items):
+    for item in planned_items:
+        position = _current_max_position(db)
         media = db.get(MediaAsset, item.media_id)
         if media is None:
             continue
         entry = PlaylistEntry(
             media_id=media.id,
             scheduled_start=item.scheduled_start,
-            position=position + offset,
+            position=position,
         )
         db.add(entry)
         db.flush()

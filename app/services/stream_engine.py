@@ -204,10 +204,21 @@ class LiveStreamManager:
         if stream is None:
             return
 
+        max_line_length = 8192
+
         while True:
-            line = await stream.readline()
+            try:
+                line = await asyncio.wait_for(stream.readline(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
+
             if not line:
                 break
+
+            if len(line) > max_line_length:
+                logger.warning("FFmpeg progress line too long, skipping")
+                continue
+
             decoded = line.decode("utf-8", "ignore").strip()
             if not decoded or "=" not in decoded:
                 continue

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import secrets
+import threading
 import time
 from collections import OrderedDict, deque
 from typing import Deque, Optional
@@ -61,6 +62,7 @@ class RateLimiter:
 
 
 redis_client: Optional[Redis] = None
+_redis_lock = threading.Lock()
 
 
 def _init_redis_client() -> Optional[Redis]:  # pragma: no cover - external dependency
@@ -82,20 +84,23 @@ def check_redis_connection() -> bool:
 
     global redis_client
 
-    if redis_client is None:
-        redis_client = _init_redis_client()
+    with _redis_lock:
         if redis_client is None:
-            return False
+            redis_client = _init_redis_client()
+            if redis_client is None:
+                return False
 
     try:
         redis_client.ping()
         return True
     except Exception:
-        redis_client = None
+        with _redis_lock:
+            redis_client = None
         return False
 
 
-redis_client = _init_redis_client()
+with _redis_lock:
+    redis_client = _init_redis_client()
 
 
 class DistributedRateLimiter:

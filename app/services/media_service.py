@@ -46,6 +46,7 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
     unique_id = uuid.uuid4().hex[:8]
     destination = MEDIA_ROOT / f"{timestamp}_{unique_id}_{safe_name}"
+    temp_destination = destination.with_suffix(destination.suffix + ".upload")
 
     MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -54,7 +55,7 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
     max_bytes = settings.max_upload_bytes
 
     try:
-        async with aiofiles.open(destination, "xb") as buffer:
+        async with aiofiles.open(temp_destination, "xb") as buffer:
             while chunk := await upload.read(8192):
                 received += len(chunk)
                 if received > max_bytes:
@@ -67,23 +68,32 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
     except FileExistsError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A file with this name already exists") from exc
     except HTTPException:
-        destination.unlink(missing_ok=True)
+        temp_destination.unlink(missing_ok=True)
         raise
     except Exception:
-        destination.unlink(missing_ok=True)
+        temp_destination.unlink(missing_ok=True)
         raise
     finally:
         await upload.close()
 
     try:
-        detected_mime = magic.from_file(str(destination), mime=True)
+        detected_mime = magic.from_file(str(temp_destination), mime=True)
     except magic.MagicException as exc:  # pragma: no cover - depends on libmagic
-        destination.unlink(missing_ok=True)
+        temp_destination.unlink(missing_ok=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to inspect media") from exc
 
     if detected_mime not in ALLOWED_MIME_TYPES:
-        destination.unlink(missing_ok=True)
+        temp_destination.unlink(missing_ok=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Detected MIME type {detected_mime} is not supported")
+
+    try:
+        temp_destination.replace(destination)
+    except FileExistsError as exc:
+        temp_destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A file with this name already exists") from exc
+    except Exception:
+        temp_destination.unlink(missing_ok=True)
+        raise
 
     checksum = hasher.hexdigest()
     return destination, received, checksum, detected_mime

@@ -105,9 +105,9 @@ class MetadataExtractor:
             str(target),
         ]
         try:
-            subprocess.run(command, check=True, capture_output=True)
+            subprocess.run(command, check=True, capture_output=True, timeout=30)
             return target
-        except subprocess.CalledProcessError as exc:  # pragma: no cover - depends on ffmpeg
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:  # pragma: no cover - depends on ffmpeg
             logger.warning("Failed to generate thumbnail", exc_info=exc)
             return None
 

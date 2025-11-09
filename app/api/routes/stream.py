@@ -5,6 +5,7 @@ import asyncio
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
@@ -59,13 +60,19 @@ async def stop_stream(db: Session = Depends(get_db)) -> None:
 
 
 def _resolve_preview_asset(name: str) -> Path:
-    if "/" in name or "\\" in name or ".." in name:
+    decoded = name
+    while True:
+        unquoted = unquote(decoded)
+        if unquoted == decoded:
+            break
+        decoded = unquoted
+
+    if any(char in decoded for char in ["/", "\\", "\x00"]) or ".." in decoded:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid asset name")
 
-    candidate = (PREVIEW_DIR / name).resolve()
-    try:
-        candidate.relative_to(PREVIEW_DIR)
-    except ValueError:
+    candidate = (PREVIEW_DIR / decoded).resolve()
+
+    if not candidate.is_relative_to(PREVIEW_DIR):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview asset not found")
 
     if not candidate.exists():
@@ -73,7 +80,11 @@ def _resolve_preview_asset(name: str) -> Path:
     return candidate
 
 
-@router.get("/preview.m3u8", responses=DEFAULT_ERROR_RESPONSES)
+@router.get(
+    "/preview.m3u8",
+    responses=DEFAULT_ERROR_RESPONSES,
+    dependencies=[Depends(enforce_rate_limit)],
+)
 async def preview_master() -> FileResponse:
     """Return the master HLS playlist for local monitoring."""
 
@@ -81,7 +92,11 @@ async def preview_master() -> FileResponse:
     return FileResponse(path, media_type="application/vnd.apple.mpegurl")
 
 
-@router.get("/preview/{asset:path}", responses=DEFAULT_ERROR_RESPONSES)
+@router.get(
+    "/preview/{asset:path}",
+    responses=DEFAULT_ERROR_RESPONSES,
+    dependencies=[Depends(enforce_rate_limit)],
+)
 async def preview_asset(asset: str) -> FileResponse:
     """Serve generated HLS playlists and segments."""
 
