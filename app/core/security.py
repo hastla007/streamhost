@@ -18,6 +18,7 @@ from app.core.exceptions import RedisConnectionError
 logger = logging.getLogger(__name__)
 
 _CSRF_SESSION_KEY = "_csrf_token"
+_CSRF_EXPIRY_KEY = "_csrf_token_expiry"
 
 
 def _get_session_container(request: Request):
@@ -34,6 +35,7 @@ def generate_csrf_token(request: Request) -> str:
     token = secrets.token_urlsafe(32)
     session = _get_session_container(request)
     session[_CSRF_SESSION_KEY] = token
+    session[_CSRF_EXPIRY_KEY] = time.time() + settings.csrf_token_ttl_seconds
     return token
 
 
@@ -42,8 +44,14 @@ def validate_csrf(request: Request, token: str | None) -> None:
 
     session = _get_session_container(request)
     expected = session.get(_CSRF_SESSION_KEY)
+    expiry = session.get(_CSRF_EXPIRY_KEY)
     if not expected or not token:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing CSRF token")
+
+    if expiry is not None and time.time() > float(expiry):
+        session.pop(_CSRF_SESSION_KEY, None)
+        session.pop(_CSRF_EXPIRY_KEY, None)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF token expired")
 
     if not secrets.compare_digest(expected, token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
@@ -173,6 +181,9 @@ class DistributedRateLimiter:
 
 
 rate_limiter = DistributedRateLimiter(settings.rate_limit_requests, settings.rate_limit_window)
+preview_rate_limiter = DistributedRateLimiter(
+    settings.preview_rate_limit_requests, settings.preview_rate_limit_window
+)
 
 
 def enforce_rate_limit(request: Request) -> None:
@@ -180,6 +191,13 @@ def enforce_rate_limit(request: Request) -> None:
 
     client_host = request.client.host if request.client else "anonymous"
     rate_limiter.check(client_host)
+
+
+def enforce_preview_rate_limit(request: Request) -> None:
+    """Rate limiter tuned for preview/HLS endpoints."""
+
+    client_host = request.client.host if request.client else "anonymous"
+    preview_rate_limiter.check(client_host)
 
 
 def csrf_protect(request: Request) -> None:

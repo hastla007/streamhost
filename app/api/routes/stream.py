@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.database import check_pool_health, get_db, get_db_context
-from app.core.security import enforce_rate_limit, redis_client
+from app.core.security import enforce_preview_rate_limit, enforce_rate_limit, redis_client
 from app.schemas import DEFAULT_ERROR_RESPONSES, HealthResponse, StreamStatus
 from app.services.stream_engine import PREVIEW_DIR
 from app.services.stream_manager import stream_manager
@@ -88,7 +88,7 @@ def _resolve_preview_asset(name: str) -> Path:
 @router.get(
     "/preview.m3u8",
     responses=DEFAULT_ERROR_RESPONSES,
-    dependencies=[Depends(enforce_rate_limit)],
+    dependencies=[Depends(enforce_preview_rate_limit)],
 )
 async def preview_master() -> FileResponse:
     """Return the master HLS playlist for local monitoring."""
@@ -100,7 +100,7 @@ async def preview_master() -> FileResponse:
 @router.get(
     "/preview/{asset:path}",
     responses=DEFAULT_ERROR_RESPONSES,
-    dependencies=[Depends(enforce_rate_limit)],
+    dependencies=[Depends(enforce_preview_rate_limit)],
 )
 async def preview_asset(asset: str) -> FileResponse:
     """Serve generated HLS playlists and segments."""

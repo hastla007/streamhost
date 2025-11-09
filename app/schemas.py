@@ -4,7 +4,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+import re
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette import status
 
 
@@ -120,12 +122,22 @@ class MediaUploadMetadata(BaseModel):
     duration_seconds: int = Field(gt=0, le=600 * 60)
 
 
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
 class SystemSettings(BaseModel):
     stream_resolution: str
     stream_bitrate: int = Field(gt=0)
     stream_fps: int = Field(gt=0, lt=145)
     hardware_accel: str
-    contact_email: EmailStr
+    contact_email: str
+
+    @field_validator("contact_email")
+    @classmethod
+    def validate_contact_email(cls, value: str) -> str:
+        if not EMAIL_PATTERN.match(value):
+            raise ValueError("contact_email must be a valid email address")
+        return value
 
 
 class SettingsResponse(BaseModel):

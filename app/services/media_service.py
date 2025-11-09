@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import hashlib
+import mimetypes
 import os
 from datetime import datetime
 import uuid
 from pathlib import Path
 
 import aiofiles
-import magic
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import asc, func, select
 from sqlalchemy.orm import Session
@@ -18,6 +18,14 @@ from app.core.config import settings
 from app.models import MediaAsset
 from app.schemas import MediaItem
 from app.services.metadata_extractor import metadata_extractor
+
+try:  # pragma: no cover - optional dependency
+    import magic
+
+    MagicError = magic.MagicException  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - fallback when libmagic unavailable
+    magic = None
+    MagicError = Exception
 
 MEDIA_ROOT = Path(os.getenv("MOVIES_DIR", settings.media_root))
 MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
@@ -77,10 +85,21 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
         await upload.close()
 
     try:
-        detected_mime = magic.from_file(str(temp_destination), mime=True)
-    except magic.MagicException as exc:  # pragma: no cover - depends on libmagic
+        if magic is None:
+            detected_mime, _ = mimetypes.guess_type(str(temp_destination))
+            if not detected_mime:
+                raise ValueError("unknown")
+        else:
+            detected_mime = magic.from_file(str(temp_destination), mime=True)
+    except MagicError as exc:  # pragma: no cover - depends on libmagic
         temp_destination.unlink(missing_ok=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to inspect media") from exc
+    except ValueError:
+        temp_destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unable to determine media type",
+        )
 
     if detected_mime not in ALLOWED_MIME_TYPES:
         temp_destination.unlink(missing_ok=True)

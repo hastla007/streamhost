@@ -1,12 +1,14 @@
 """Application configuration management."""
 from __future__ import annotations
 
+import os
+import re
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from typing import Any, Optional, Union
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -48,7 +50,7 @@ class Settings(BaseModel):
     stream_fps: int = Field(30, validation_alias="STREAM_FPS")
     stream_hardware_accel: str = Field("auto", validation_alias="STREAM_HARDWARE_ACCEL")
 
-    alert_email: EmailStr = Field("admin@example.com", validation_alias="ALERT_EMAIL")
+    alert_email: str = Field("admin@example.com", validation_alias="ALERT_EMAIL")
     sentry_dsn: Optional[str] = Field(None, validation_alias="SENTRY_DSN")
     prometheus_port: int = Field(9090, validation_alias="PROMETHEUS_PORT")
 
@@ -59,8 +61,11 @@ class Settings(BaseModel):
 
     rate_limit_requests: int = Field(60, validation_alias="RATE_LIMIT_REQUESTS")
     rate_limit_window: int = Field(60, validation_alias="RATE_LIMIT_WINDOW")
+    preview_rate_limit_requests: int = Field(30, validation_alias="PREVIEW_RATE_LIMIT_REQUESTS")
+    preview_rate_limit_window: int = Field(60, validation_alias="PREVIEW_RATE_LIMIT_WINDOW")
+    csrf_token_ttl_seconds: int = Field(2 * 60 * 60, validation_alias="CSRF_TOKEN_TTL_SECONDS")
     rate_limit_max_keys: int = Field(10_000, validation_alias="RATE_LIMIT_MAX_KEYS")
-    max_upload_mb: int = Field(512, validation_alias="MAX_UPLOAD_MB")
+    max_upload_mb: int = Field(512, validation_alias="MAX_UPLOAD_MB", gt=0)
     media_root: str = Field(str(BASE_DIR / "data" / "movies"), validation_alias="MOVIES_DIR")
     log_dir: str = Field(str(BASE_DIR / "data" / "logs"), validation_alias="LOGS_DIR")
     log_max_bytes: int = Field(10 * 1024 * 1024, validation_alias="LOG_MAX_BYTES")
@@ -74,6 +79,8 @@ class Settings(BaseModel):
 
     class Config:
         populate_by_name = True
+
+    _email_pattern = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -113,6 +120,15 @@ class Settings(BaseModel):
             raise ValueError("JWT_SECRET must be at least 32 characters long")
         return value
 
+    @field_validator("alert_email")
+    @classmethod
+    def validate_alert_email(cls, value: str) -> str:
+        """Basic validation for alert email addresses without external deps."""
+
+        if not cls._email_pattern.match(value):
+            raise ValueError("ALERT_EMAIL must be a valid email address")
+        return value
+
     @model_validator(mode="after")
     def ensure_database_url(self) -> "Settings":
         """Construct a PostgreSQL URL when one is not explicitly provided."""
@@ -150,6 +166,11 @@ class Settings(BaseModel):
                 "Production deployments require YOUTUBE_STREAM_KEY and YOUTUBE_RTMP_URL to be configured"
             )
 
+        if has_url:
+            parsed = urlparse(self.youtube_rtmp_url)
+            if parsed.scheme not in {"rtmp", "rtmps"} or not parsed.netloc:
+                raise ValueError("YOUTUBE_RTMP_URL must be a valid RTMP/RTMPS URL")
+
         return self
 
     @property
@@ -162,6 +183,15 @@ def get_settings() -> Settings:
     """Return cached settings instance."""
 
     overrides: dict[str, Any] = {}
+    env_mappings = {
+        "secret_key": os.getenv("SECRET_KEY"),
+        "jwt_secret": os.getenv("JWT_SECRET"),
+        "database_url": os.getenv("DATABASE_URL"),
+        "postgres_password": os.getenv("POSTGRES_PASSWORD"),
+        "youtube_stream_key": os.getenv("YOUTUBE_STREAM_KEY"),
+        "youtube_rtmp_url": os.getenv("YOUTUBE_RTMP_URL"),
+    }
+    overrides.update({k: v for k, v in env_mappings.items() if v})
     return Settings(**overrides)
 
 

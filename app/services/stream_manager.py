@@ -97,7 +97,11 @@ class StreamManager:
                 self._session_id = None
                 self._destination = None
                 self._encoder_name = "ffmpeg"
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+                logger.warning("Media file missing during stream start", extra={"error": str(exc)})
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Requested media file is no longer available",
+                ) from exc
             except (OSError, PermissionError) as exc:
                 session.status = "error"
                 session.last_error = f"File access error: {exc}"
@@ -265,7 +269,10 @@ class StreamManager:
 
         missing = [path for _mid, path in media_paths if not path.exists()]
         if missing:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Missing media files: {missing}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="One or more media files are missing from disk",
+            )
 
         paths = [path for _mid, path in media_paths]
         first_media_id = media_paths[0][0]

@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import enforce_rate_limit
 from app.schemas import DEFAULT_ERROR_RESPONSES, MediaList, MediaUploadMetadata, UploadResponse
@@ -41,6 +42,18 @@ async def upload_media(
     db: Session = Depends(get_db),
 ) -> UploadResponse:
     """Validate and accept a media upload."""
+
+    declared_size = file.headers.get("content-length") if file.headers else None
+    if declared_size:
+        try:
+            if int(declared_size) > settings.max_upload_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File exceeds {settings.max_upload_mb}MB limit",
+                )
+        except ValueError:
+            # Ignore malformed sizes and rely on streaming checks.
+            pass
 
     metadata = MediaUploadMetadata(title=title, genre=genre, duration_seconds=duration_seconds)
     media_item = await media_service.create_media(

@@ -166,6 +166,13 @@ DATABASE_URL=postgresql://streamadmin:${POSTGRES_PASSWORD}@localhost:5432/movies
    ADMIN_EMAIL=admin@example.com
    ```
 
+   * `PREVIEW_RATE_LIMIT_REQUESTS` and `PREVIEW_RATE_LIMIT_WINDOW` gate HLS
+     preview traffic separately from the core API to prevent bandwidth abuse.
+   * `CSRF_TOKEN_TTL_SECONDS` defines how long browser-issued CSRF tokens remain
+     valid before a fresh token is required.
+   * `MAX_UPLOAD_MB` caps upload size; declared content lengths are checked
+     before the upload stream is accepted so oversized transfers fail fast.
+
 ### Stream Profiles
 
 Create a `config/stream_profiles.yaml` file (the repository does not ship one by
