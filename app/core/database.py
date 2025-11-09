@@ -55,10 +55,11 @@ def _create_engine():
         pool: Pool = connection_proxy._pool
         checked_out = pool.checkedout()
         total = POOL_SIZE + MAX_OVERFLOW
-        if checked_out >= total - 2:
+        threshold = max(int(total * 0.8), 1)
+        if checked_out >= threshold:
             logger.warning(
-                "Database connection pool nearly exhausted",
-                extra={"checked_out": checked_out, "max": total},
+                "Database connection pool nearing capacity",
+                extra={"checked_out": checked_out, "max": total, "threshold": threshold},
             )
 
     @event.listens_for(engine, "checkin")

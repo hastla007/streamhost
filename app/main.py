@@ -17,7 +17,12 @@ from app.api import router as api_router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
 from app.core.middleware import RequestTimeoutMiddleware
-from app.core.security import CSRF_EXPIRY_KEY, generate_csrf_token, redis_client
+from app.core.security import (
+    CSRF_EXPIRY_KEY,
+    CSRF_PREVIOUS_KEY,
+    generate_csrf_token,
+    redis_client,
+)
 from app.core.sessions import ServerSessionMiddleware, periodic_session_cleanup
 from app.core.types import ASGICallNext
 from app.db.init_db import init_database
@@ -77,6 +82,8 @@ def create_app() -> FastAPI:
                 expired = True
         if token is None or expired:
             if container is not None:
+                if token:
+                    container[CSRF_PREVIOUS_KEY] = token
                 container.pop("_csrf_token", None)
                 container.pop(CSRF_EXPIRY_KEY, None)
             generate_csrf_token(request)

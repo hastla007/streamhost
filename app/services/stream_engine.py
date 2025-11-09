@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import tempfile
+import weakref
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -54,6 +55,7 @@ class LiveStreamManager:
         self._restart_attempts = 0
         self._concat_file: Optional[Path] = None
         self._concat_tempdir: Optional[tempfile.TemporaryDirectory] = None
+        self._concat_finalizer: Optional[weakref.finalize] = None
         self._consecutive_failures = 0
         self._last_success_time: Optional[datetime] = None
         self._stderr_lines: deque[str] = deque(maxlen=50)
@@ -346,6 +348,13 @@ class LiveStreamManager:
 
             self._metrics = metrics
 
+    @staticmethod
+    def _cleanup_tempdir(tempdir: tempfile.TemporaryDirectory) -> None:  # pragma: no cover - defensive
+        try:
+            tempdir.cleanup()
+        except (PermissionError, OSError):
+            logger.warning("Failed to cleanup concat directory during finalizer", exc_info=True)
+
     def _create_concat_file(self, media_files: Iterable[Path]) -> Path:
         self._cleanup_concat()
         tempdir = tempfile.TemporaryDirectory(prefix="streamhost_playlist_")
@@ -358,12 +367,13 @@ class LiveStreamManager:
                     if not resolved.exists():
                         raise FileNotFoundError(f"Media file missing: {resolved}")
 
+                    resolved_path = Path(resolved)
                     if os.name == "nt":
-                        normalized = str(resolved)
-                        escaped = normalized.replace("\\", "\\\\").replace("\"", "\\\"")
+                        normalized = str(resolved_path)
+                        escaped = normalized.replace("\\", "\\\\").replace('"', '\\"')
                         handle.write(f"file \"{escaped}\"\n")
                     else:
-                        normalized = resolved.as_posix()
+                        normalized = resolved_path.as_posix()
                         escaped = normalized.replace("'", "'\\''")
                         handle.write(f"file '{escaped}'\n")
         except Exception:
@@ -371,9 +381,17 @@ class LiveStreamManager:
             raise
         else:
             self._concat_tempdir = tempdir
+            self._concat_finalizer = weakref.finalize(self, self._cleanup_tempdir, tempdir)
             return concat_file
 
     def _cleanup_concat(self) -> None:
+        if self._concat_finalizer is not None:
+            try:
+                self._concat_finalizer()
+            except Exception:  # pragma: no cover - defensive cleanup
+                logger.warning("Concat finalizer raised during cleanup", exc_info=True)
+            self._concat_finalizer = None
+
         if self._concat_tempdir is not None:
             try:
                 self._concat_tempdir.cleanup()

@@ -82,7 +82,7 @@ def upgrade() -> None:
         ),
         sa.Column("media_id", sa.Integer(), sa.ForeignKey("media_asset.id", ondelete="CASCADE"), nullable=False),
         sa.Column("scheduled_start", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("position", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column("position", sa.Integer(), nullable=False),
     )
 
     op.create_index("ix_playlist_entry_position", "playlist_entry", ["position"])

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _CSRF_SESSION_KEY = "_csrf_token"
 _CSRF_EXPIRY_KEY = "_csrf_token_expiry"
+_CSRF_PREVIOUS_KEY = "_csrf_token_previous"
 
 
 def _get_session_container(request: Request):
@@ -44,6 +45,7 @@ def validate_csrf(request: Request, token: str | None) -> None:
 
     session = _get_session_container(request)
     expected = session.get(_CSRF_SESSION_KEY)
+    previous = session.get(_CSRF_PREVIOUS_KEY)
     expiry = session.get(_CSRF_EXPIRY_KEY)
     if not expected or not token:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing CSRF token")
@@ -54,15 +56,24 @@ def validate_csrf(request: Request, token: str | None) -> None:
         except (TypeError, ValueError):
             session.pop(_CSRF_SESSION_KEY, None)
             session.pop(_CSRF_EXPIRY_KEY, None)
+            session.pop(_CSRF_PREVIOUS_KEY, None)
             logger.warning("Invalid CSRF expiry encountered; forcing token refresh")
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
         if time.time() > expiry_value:
             session.pop(_CSRF_SESSION_KEY, None)
             session.pop(_CSRF_EXPIRY_KEY, None)
+            session.pop(_CSRF_PREVIOUS_KEY, None)
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF token expired")
 
-    if not secrets.compare_digest(expected, token):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
+    if secrets.compare_digest(expected, token):
+        session.pop(_CSRF_PREVIOUS_KEY, None)
+        return
+
+    if previous and secrets.compare_digest(previous, token):
+        session.pop(_CSRF_PREVIOUS_KEY, None)
+        return
+
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
 
 
 class RateLimiter:
@@ -106,6 +117,7 @@ _redis_lock = threading.Lock()
 
 CSRF_SESSION_KEY = _CSRF_SESSION_KEY
 CSRF_EXPIRY_KEY = _CSRF_EXPIRY_KEY
+CSRF_PREVIOUS_KEY = _CSRF_PREVIOUS_KEY
 
 
 def _init_redis_client() -> Optional[Redis]:  # pragma: no cover - external dependency

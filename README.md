@@ -172,6 +172,8 @@ DATABASE_URL=postgresql://streamadmin:${POSTGRES_PASSWORD}@localhost:5432/movies
      valid before a fresh token is required.
    * `MAX_UPLOAD_MB` caps upload size; declared content lengths are checked
      before the upload stream is accepted so oversized transfers fail fast.
+   * `PLAYLIST_POSITION_MAX_RETRIES` tunes how many times the service retries
+     reserving playlist slots when high concurrency causes contention.
 
 ### Stream Profiles
 

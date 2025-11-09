@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import re
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
@@ -12,6 +11,8 @@ from sqlalchemy.engine import make_url
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from dotenv import load_dotenv
+
+from app.utils.email_validation import EmailNotValidError, validate_email
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_FILE = BASE_DIR / ".env"
@@ -75,6 +76,11 @@ class Settings(BaseModel):
     log_dir: str = Field(str(BASE_DIR / "data" / "logs"), validation_alias="LOGS_DIR")
     log_max_bytes: int = Field(10 * 1024 * 1024, validation_alias="LOG_MAX_BYTES")
     log_backup_count: int = Field(5, validation_alias="LOG_BACKUP_COUNT")
+    playlist_position_max_retries: int = Field(
+        10,
+        validation_alias="PLAYLIST_POSITION_MAX_RETRIES",
+        ge=1,
+    )
 
     stream_restart_base_delay: int = Field(5, validation_alias="STREAM_RESTART_BASE_DELAY")
     stream_restart_max_delay: int = Field(300, validation_alias="STREAM_RESTART_MAX_DELAY")
@@ -84,8 +90,6 @@ class Settings(BaseModel):
 
     class Config:
         populate_by_name = True
-
-    _email_pattern = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -128,10 +132,12 @@ class Settings(BaseModel):
     @field_validator("alert_email")
     @classmethod
     def validate_alert_email(cls, value: str) -> str:
-        """Basic validation for alert email addresses without external deps."""
+        """Validate alert email addresses using RFC-compliant rules."""
 
-        if not cls._email_pattern.match(value):
-            raise ValueError("ALERT_EMAIL must be a valid email address")
+        try:
+            validate_email(value, allow_smtputf8=False)
+        except EmailNotValidError as exc:
+            raise ValueError("ALERT_EMAIL must be a valid email address") from exc
         return value
 
     @field_validator("admin_default_password")

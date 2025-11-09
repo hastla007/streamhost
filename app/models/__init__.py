@@ -49,9 +49,7 @@ class PlaylistEntry(TableNameMixin, TimestampMixin, Base):
     scheduled_start: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
-    position: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, index=True, unique=True
-    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, index=True, unique=True)
 
     media: Mapped[MediaAsset] = relationship(back_populates="playlist_entries")
 

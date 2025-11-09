@@ -121,7 +121,9 @@ class CleanupService:
                     thumbnail.unlink()
                     removed += 1
                     bytes_freed += size
-            except (OSError, FileNotFoundError):
+            except FileNotFoundError:
+                logger.debug("Thumbnail deleted during cleanup", extra={"path": str(thumbnail)})
+            except OSError:
                 logger.warning("Failed to remove thumbnail", extra={"path": str(thumbnail)})
         return removed, bytes_freed
 

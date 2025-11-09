@@ -10,13 +10,14 @@ from sqlalchemy import asc, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import MediaAsset, PlaylistEntry, PlaylistPositionCounter
 from app.schemas import PlaylistCreate, PlaylistGenerationRequest, PlaylistItem
 from app.services.playlist_scheduler import playlist_scheduler
 
 logger = logging.getLogger(__name__)
 
-MAX_POSITION_RETRIES = 5
+MAX_POSITION_RETRIES = settings.playlist_position_max_retries
 
 
 def list_playlist(db: Session, *, limit: int | None = None, offset: int = 0) -> list[PlaylistItem]:
@@ -117,11 +118,16 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
 
     for item in planned_items:
         entry: PlaylistEntry | None = None
-        media: MediaAsset | None = None
+        media = db.get(MediaAsset, item.media_id)
+        if media is None:
+            logger.warning(
+                "Skipping playlist item with missing media",
+                extra={"media_id": item.media_id},
+            )
+            continue
+
+        entry: PlaylistEntry | None = None
         for attempt in range(MAX_POSITION_RETRIES):
-            media = db.get(MediaAsset, item.media_id)
-            if media is None:
-                break
             try:
                 entry = _persist_playlist_entry(
                     db,
@@ -144,14 +150,16 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
                 db.rollback()
                 raise
 
-        if media is None:
-            continue
-
         if entry is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Failed to generate playlist due to position contention",
+            logger.error(
+                "Skipping playlist item due to position contention",
+                extra={
+                    "media_id": media.id,
+                    "attempts": MAX_POSITION_RETRIES,
+                    "strategy": request.strategy,
+                },
             )
+            continue
 
         created.append(
             PlaylistItem(
