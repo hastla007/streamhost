@@ -130,6 +130,25 @@ class Settings(BaseModel):
         )
         return self
 
+    @model_validator(mode="after")
+    def ensure_stream_destination(self) -> "Settings":
+        """Validate streaming destination configuration."""
+
+        has_key = bool(self.youtube_stream_key)
+        has_url = bool(self.youtube_rtmp_url)
+
+        if has_key != has_url:
+            raise ValueError(
+                "YOUTUBE_STREAM_KEY and YOUTUBE_RTMP_URL must both be provided or both omitted"
+            )
+
+        if self.app_env.lower() == "production" and not (has_key and has_url):
+            raise ValueError(
+                "Production deployments require YOUTUBE_STREAM_KEY and YOUTUBE_RTMP_URL to be configured"
+            )
+
+        return self
+
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024

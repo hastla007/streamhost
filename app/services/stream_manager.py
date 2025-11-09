@@ -172,7 +172,7 @@ class StreamManager:
 
     async def status(self) -> StreamStatus:
         snapshot = await live_stream_engine.status_snapshot()
-        running = await live_stream_engine.is_running()
+        running = snapshot.running
 
         async with self._lock:
             destination = self._destination

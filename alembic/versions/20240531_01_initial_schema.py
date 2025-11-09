@@ -62,6 +62,9 @@ def upgrade() -> None:
         sa.Column("thumbnail_path", sa.String(length=512), nullable=True),
     )
 
+    op.create_index("ix_media_asset_genre", "media_asset", ["genre"])
+    op.create_index("ix_media_asset_title", "media_asset", ["title"])
+
     op.create_table(
         "playlist_entry",
         sa.Column("id", sa.Integer(), primary_key=True),
@@ -134,5 +137,7 @@ def downgrade() -> None:
     op.drop_table("system_setting")
     op.drop_index("ix_playlist_entry_position", table_name="playlist_entry")
     op.drop_table("playlist_entry")
+    op.drop_index("ix_media_asset_title", table_name="media_asset")
+    op.drop_index("ix_media_asset_genre", table_name="media_asset")
     op.drop_table("media_asset")
     op.drop_table("user")

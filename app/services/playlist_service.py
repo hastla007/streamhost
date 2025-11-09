@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, status
 from sqlalchemy import asc, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import MediaAsset, PlaylistEntry
@@ -37,11 +38,12 @@ def count_playlist(db: Session) -> int:
 
 
 def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
-    media = None
-    if payload.media_id is not None:
-        media = db.get(MediaAsset, payload.media_id)
+    if payload.media_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="media_id is required")
+
+    media = db.get(MediaAsset, payload.media_id)
     if media is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Media item must be provided")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
 
     try:
         position = _reserve_next_position(db)
@@ -53,7 +55,7 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
         db.add(entry)
         db.flush()
         db.commit()
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
         raise
 
@@ -128,14 +130,14 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
 def _reserve_next_position(db: Session) -> int:
     """Return the next available playlist position using a locked query."""
 
-    # The FOR UPDATE clause serialises concurrent callers so each transaction
-    # observes a unique maximum before inserting. If cross-database support is
-    # required in the future we can replace this with a dedicated sequence.
-    result = db.execute(
-        text(
-            "SELECT position FROM playlist_entry ORDER BY position DESC LIMIT 1 FOR UPDATE"
-        )
-    ).scalar()
+    dialect_name = getattr(getattr(db.bind, "dialect", None), "name", "")
+    # Serialise concurrent callers with FOR UPDATE when the backend supports it.
+    # SQLite ignores locking hints, so we omit it there to avoid syntax errors.
+    base_query = "SELECT position FROM playlist_entry ORDER BY position DESC LIMIT 1"
+    if dialect_name and dialect_name != "sqlite":
+        base_query += " FOR UPDATE"
+
+    result = db.execute(text(base_query)).scalar()
 
     if result is None:
         return 1

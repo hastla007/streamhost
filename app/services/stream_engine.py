@@ -467,7 +467,9 @@ class LiveStreamManager:
 
     async def status_snapshot(self) -> StreamSnapshot:
         async with self._lock:
+            running = self._process is not None and self._process.returncode is None
             return StreamSnapshot(
+                running=running,
                 playlist_id=self._playlist_id,
                 started_at=self._started_at,
                 last_error=self._last_error,

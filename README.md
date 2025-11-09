@@ -168,8 +168,8 @@ DATABASE_URL=postgresql://streamadmin:${POSTGRES_PASSWORD}@localhost:5432/movies
 
 ### Stream Profiles
 
-Edit `config/stream_profiles.yaml` to adjust stream settings and hardware acceleration
-options.
+Create a `config/stream_profiles.yaml` file (the repository does not ship one by
+default) to adjust stream settings and hardware acceleration options.
 
 ```yaml
 profiles:
@@ -211,7 +211,8 @@ hardware_acceleration:
 
 ### Playlist Rules
 
-Edit `config/playlist_rules.yaml` to control content scheduling and genre rotation.
+Create a `config/playlist_rules.yaml` file alongside the profiles configuration to
+control content scheduling and genre rotation.
 
 ```yaml
 playlist_settings:

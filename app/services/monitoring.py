@@ -28,7 +28,7 @@ class StreamMonitor:
         metrics = snapshot.metrics
         started_at = snapshot.started_at
         last_error = snapshot.last_error
-        ffmpeg_running = await live_stream_engine.is_running()
+        ffmpeg_running = snapshot.running
         bitrate_target = settings.stream_bitrate
         bitrate_ok = metrics.bitrate_kbps >= int(bitrate_target * 0.7)
         dropped_ok = metrics.dropped_frames < 100

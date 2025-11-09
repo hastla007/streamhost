@@ -56,6 +56,7 @@ class MediaContext(BaseContext, total=False):
 class StreamSnapshot:
     """Immutable snapshot of stream state."""
 
+    running: bool
     playlist_id: Optional[int]
     started_at: Optional[datetime]
     last_error: Optional[str]
