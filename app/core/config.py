@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -21,13 +21,12 @@ class Settings(BaseModel):
     debug: bool = Field(False, validation_alias="DEBUG")
     secret_key: str = Field(..., validation_alias="SECRET_KEY")
 
-    database_url: str = Field(
-        "sqlite:///" + str(BASE_DIR / "data" / "streamhost.db"),
-        validation_alias="DATABASE_URL",
-    )
+    database_url: str | None = Field(None, validation_alias="DATABASE_URL")
     postgres_db: str = Field("moviestream", validation_alias="POSTGRES_DB")
     postgres_user: str = Field("streamadmin", validation_alias="POSTGRES_USER")
-    postgres_password: str = Field("", validation_alias="POSTGRES_PASSWORD")
+    postgres_password: str = Field("please-change-me", validation_alias="POSTGRES_PASSWORD")
+    postgres_host: str = Field("localhost", validation_alias="POSTGRES_HOST")
+    postgres_port: int = Field(5432, validation_alias="POSTGRES_PORT")
 
     redis_url: str = Field("redis://localhost:6379/0", validation_alias="REDIS_URL")
 
@@ -111,6 +110,24 @@ class Settings(BaseModel):
         if len(value) < 32:
             raise ValueError("JWT_SECRET must be at least 32 characters long")
         return value
+
+    @model_validator(mode="after")
+    def ensure_database_url(self) -> "Settings":
+        """Construct a PostgreSQL URL when one is not explicitly provided."""
+
+        if self.database_url:
+            return self
+
+        if not self.postgres_password:
+            raise ValueError(
+                "DATABASE_URL must be provided or POSTGRES_PASSWORD must be set to build one"
+            )
+
+        self.database_url = (
+            f"postgresql+psycopg2://{self.postgres_user}:{self.postgres_password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+        return self
 
     @property
     def max_upload_bytes(self) -> int:

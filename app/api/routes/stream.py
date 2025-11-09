@@ -72,7 +72,9 @@ def _resolve_preview_asset(name: str) -> Path:
 
     candidate = (PREVIEW_DIR / decoded).resolve()
 
-    if not candidate.is_relative_to(PREVIEW_DIR):
+    try:
+        candidate.relative_to(PREVIEW_DIR)
+    except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview asset not found")
 
     if not candidate.exists():

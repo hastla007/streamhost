@@ -15,8 +15,18 @@ def upgrade() -> None:
     op.create_table(
         "user",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
         sa.Column("username", sa.String(length=50), nullable=False, unique=True),
         sa.Column("hashed_password", sa.String(length=255), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
@@ -26,8 +36,18 @@ def upgrade() -> None:
     op.create_table(
         "media_asset",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
         sa.Column("title", sa.String(length=200), nullable=False),
         sa.Column("genre", sa.String(length=64), nullable=False),
         sa.Column("duration_seconds", sa.Integer(), nullable=False),
@@ -45,18 +65,40 @@ def upgrade() -> None:
     op.create_table(
         "playlist_entry",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
         sa.Column("media_id", sa.Integer(), sa.ForeignKey("media_asset.id", ondelete="CASCADE"), nullable=False),
         sa.Column("scheduled_start", sa.DateTime(timezone=True), nullable=True),
         sa.Column("position", sa.Integer(), nullable=False, server_default=sa.text("0")),
     )
 
+    op.create_index("ix_playlist_entry_position", "playlist_entry", ["position"])
+
     op.create_table(
         "system_setting",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
         sa.Column("stream_resolution", sa.String(length=32), nullable=False),
         sa.Column("stream_bitrate", sa.Integer(), nullable=False),
         sa.Column("stream_fps", sa.Integer(), nullable=False),
@@ -67,8 +109,18 @@ def upgrade() -> None:
     op.create_table(
         "stream_session",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"),
+            nullable=False,
+        ),
         sa.Column("media_id", sa.Integer(), sa.ForeignKey("media_asset.id", ondelete="SET NULL"), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False, server_default=sa.text("'offline'")),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
@@ -80,6 +132,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("stream_session")
     op.drop_table("system_setting")
+    op.drop_index("ix_playlist_entry_position", table_name="playlist_entry")
     op.drop_table("playlist_entry")
     op.drop_table("media_asset")
     op.drop_table("user")

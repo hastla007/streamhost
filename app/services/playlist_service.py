@@ -43,7 +43,7 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
     if media is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Media item must be provided")
 
-    position = _current_max_position(db)
+    position = _reserve_next_position(db)
     entry = PlaylistEntry(
         media_id=media.id,
         scheduled_start=payload.scheduled_start,
@@ -79,11 +79,14 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
 
     created: list[PlaylistItem] = []
 
+    next_position = _reserve_next_position(db)
+
     for item in planned_items:
-        position = _current_max_position(db)
         media = db.get(MediaAsset, item.media_id)
         if media is None:
             continue
+        position = next_position
+        next_position += 1
         entry = PlaylistEntry(
             media_id=media.id,
             scheduled_start=item.scheduled_start,
@@ -106,14 +109,19 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
     return created
 
 
-def _current_max_position(db: Session) -> int:
+def _reserve_next_position(db: Session) -> int:
     """Return the next available playlist position using a locked query."""
 
     result = db.execute(
-        text("SELECT COALESCE(MAX(position), 0) + 1 FROM playlist_entry FOR UPDATE")
+        text(
+            "SELECT position FROM playlist_entry ORDER BY position DESC LIMIT 1 FOR UPDATE"
+        )
     ).scalar()
-    next_position = int(result) if result is not None else 1
-    return next_position
+
+    if result is None:
+        return 1
+
+    return int(result) + 1
 
 
 def _serialize_entries(entries: list[PlaylistEntry]) -> list[PlaylistItem]:

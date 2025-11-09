@@ -134,7 +134,13 @@ class LiveStreamManager:
     async def _launch_process(self) -> None:
         assert self._plan is not None
 
-        concat_file = self._create_concat_file(self._plan.media_files)
+        try:
+            concat_file = self._create_concat_file(self._plan.media_files)
+        except FileNotFoundError as exc:
+            self._last_error = str(exc)
+            logger.error("Unable to build FFmpeg playlist", exc_info=exc)
+            raise
+
         self._concat_file = concat_file
         command = self._build_command(self._plan, concat_file)
         logger.info("Starting FFmpeg", extra={"command": command})
@@ -252,10 +258,18 @@ class LiveStreamManager:
     def _create_concat_file(self, media_files: Iterable[Path]) -> Path:
         playlist_dir = Path(tempfile.mkdtemp(prefix="streamhost_playlist_"))
         concat_file = playlist_dir / "playlist.txt"
-        with concat_file.open("w", encoding="utf-8") as handle:
-            for path in media_files:
-                normalized = path.resolve().as_posix()
-                handle.write(f"file '{normalized}'\n")
+        try:
+            with concat_file.open("w", encoding="utf-8") as handle:
+                for path in media_files:
+                    resolved = path.resolve()
+                    if not resolved.exists():
+                        raise FileNotFoundError(f"Media file missing: {resolved}")
+                    normalized = resolved.as_posix()
+                    escaped = normalized.replace("'", "'\\''")
+                    handle.write(f"file '{escaped}'\n")
+        except Exception:
+            shutil.rmtree(playlist_dir, ignore_errors=True)
+            raise
         return concat_file
 
     def _cleanup_concat(self) -> None:
