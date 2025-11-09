@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -165,6 +165,6 @@ async def health_check() -> HealthResponse:
 
     return HealthResponse(
         status=status_text,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         details=details,
     )

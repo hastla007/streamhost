@@ -6,7 +6,7 @@ import json
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from redis import Redis
@@ -68,7 +68,7 @@ class ServerSession:
         self._meta = SessionMetadata(created_at=created_at, last_accessed_at=last_accessed_at)
 
     def _serialize(self) -> str:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if self._meta is None:
             self._meta = SessionMetadata(created_at=now, last_accessed_at=now)
         else:
@@ -101,7 +101,7 @@ class ServerSession:
     def check_valid(self) -> tuple[bool, Optional[str]]:
         if self._meta is None:
             return True, None
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         age = (now - self._meta.created_at).total_seconds()
         idle = (now - self._meta.last_accessed_at).total_seconds()
         if age > SESSION_ABSOLUTE_TIMEOUT:

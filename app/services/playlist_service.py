@@ -53,10 +53,11 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
     if payload.media_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="media_id is required")
 
+    media = db.get(MediaAsset, payload.media_id)
+    if media is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
+
     for attempt in range(MAX_POSITION_RETRIES):
-        media = db.get(MediaAsset, payload.media_id)
-        if media is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
 
         try:
             entry = _persist_playlist_entry(

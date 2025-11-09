@@ -49,9 +49,6 @@ class StreamManager:
             profiles = self._build_profiles()
             encoder, preset = self._resolve_encoder()
 
-            self._destination = None
-            self._encoder_name = "ffmpeg"
-
             plan = StreamLaunchPlan(
                 playlist_id=playlist_entry_id or 0,
                 media_files=media_files,

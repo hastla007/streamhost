@@ -6,7 +6,7 @@ import logging
 import re
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -83,15 +83,13 @@ class MetadataExtractor:
             if frame_rate_raw and frame_rate_raw != "0/0":
                 try:
                     numerator, denominator = frame_rate_raw.split("/")
-                    denom_int = int(denominator)
-                    if denom_int != 0:
-                        fps = round(int(numerator) / denom_int, 2)
-                        frame_rate = str(fps)
-                    else:
-                        logger.warning(
-                            "Division by zero parsing frame rate",
-                            extra={"filepath": str(filepath), "raw": frame_rate_raw},
-                        )
+                    fps = round(int(numerator) / int(denominator), 2)
+                    frame_rate = str(fps)
+                except ZeroDivisionError:
+                    logger.warning(
+                        "Division by zero parsing frame rate",
+                        extra={"filepath": str(filepath), "raw": frame_rate_raw},
+                    )
                 except (ValueError, TypeError, AttributeError) as exc:
                     logger.warning(
                         "Failed to parse frame rate",
@@ -114,7 +112,7 @@ class MetadataExtractor:
         )
 
     def _generate_thumbnail(self, filepath: Path) -> Optional[Path]:
-        target = THUMBNAIL_DIR / f"{filepath.stem}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.jpg"
+        target = THUMBNAIL_DIR / f"{filepath.stem}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.jpg"
         command = [
             "ffmpeg",
             "-y",

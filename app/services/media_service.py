@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 from pathlib import Path
 
@@ -34,6 +35,9 @@ ALLOWED_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm"}
 ALLOWED_MIME_TYPES = {"video/mp4", "video/x-matroska", "video/quicktime", "video/webm", "video/x-msvideo"}
 
 
+logger = logging.getLogger(__name__)
+
+
 async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str]:
     """Persist an upload to disk with strict validation and hashing."""
 
@@ -51,7 +55,7 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
     if not safe_name or safe_name.startswith("."):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename supplied")
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     unique_id = uuid.uuid4().hex[:8]
     destination = MEDIA_ROOT / f"{timestamp}_{unique_id}_{safe_name}"
     temp_destination = destination.with_suffix(destination.suffix + ".upload")
@@ -187,8 +191,11 @@ async def create_media(
             try:
                 thumb_path = Path(metadata.thumbnail_path)
                 thumb_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Failed to remove thumbnail during rollback",
+                    extra={"thumbnail": metadata.thumbnail_path, "error": str(exc)},
+                )
         raise
 
 

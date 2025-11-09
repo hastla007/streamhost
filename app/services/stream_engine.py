@@ -214,8 +214,6 @@ class LiveStreamManager:
             await self.stop_stream()
 
     async def _handle_restart(self) -> None:
-        assert self._plan is not None
-
         async with self._lock:
             if self._is_restarting or self._plan is None:
                 return
@@ -224,10 +222,12 @@ class LiveStreamManager:
         try:
             while True:
                 process_to_wait: Optional[asyncio.subprocess.Process] = None
+
                 async with self._lock:
                     self._restart_attempts += 1
                     self._consecutive_failures += 1
                     attempts = self._restart_attempts
+
                     if attempts > settings.stream_restart_max_attempts:
                         logger.critical("Exceeded FFmpeg restart attempts", extra={"attempts": attempts})
                         await self._stop_locked()
@@ -256,34 +256,36 @@ class LiveStreamManager:
                         process_to_wait.kill()
                         await process_to_wait.wait()
 
-            try:
-                delay = self._retry_calculator.calculate_delay(attempts)
-            except ValueError:
-                delay = float(settings.stream_restart_max_delay)
-
-            logger.warning(
-                "Restarting FFmpeg after backoff",
-                extra={
-                    "attempt": attempts,
-                    "delay_seconds": f"{delay:.2f}",
-                    "consecutive_failures": self._consecutive_failures,
-                },
-            )
-            await asyncio.sleep(delay)
-
-            async with self._lock:
-                if self._plan is None:
-                    return
-                logger.info("Attempting FFmpeg restart", extra={"attempt": attempts})
                 try:
-                    await self._launch_process()
-                    self._consecutive_failures = 0
-                    return
-                except StreamingError as exc:
-                    self._last_error = str(exc)
-                    logger.error("Failed to restart FFmpeg", extra={"attempt": attempts, "error": str(exc)})
-                    # Loop will retry until limits reached
-                    pass
+                    delay = self._retry_calculator.calculate_delay(attempts)
+                except ValueError:
+                    delay = float(settings.stream_restart_max_delay)
+
+                logger.warning(
+                    "Restarting FFmpeg after backoff",
+                    extra={
+                        "attempt": attempts,
+                        "delay_seconds": f"{delay:.2f}",
+                        "consecutive_failures": self._consecutive_failures,
+                    },
+                )
+                await asyncio.sleep(delay)
+
+                async with self._lock:
+                    if self._plan is None:
+                        return
+                    logger.info("Attempting FFmpeg restart", extra={"attempt": attempts})
+                    try:
+                        await self._launch_process()
+                        self._consecutive_failures = 0
+                        return
+                    except StreamingError as exc:
+                        self._last_error = str(exc)
+                        logger.error(
+                            "Failed to restart FFmpeg",
+                            extra={"attempt": attempts, "error": str(exc)},
+                        )
+                        continue
         finally:
             async with self._lock:
                 self._is_restarting = False

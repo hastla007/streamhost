@@ -1,7 +1,7 @@
 """Authentication helpers for JWT based auth."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -45,7 +45,7 @@ def authenticate_user(db: Session, username: str, password: str) -> User | None:
 def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
     """Create a signed JWT access token."""
 
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.jwt_expiry_minutes))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.jwt_expiry_minutes))
     to_encode = {"sub": subject, "exp": expire}
     return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
