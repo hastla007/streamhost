@@ -61,6 +61,13 @@ class RateLimiter:
     def check(self, identifier: str) -> None:
         now = time.time()
 
+        for key in list(self._hits.keys()):
+            hits = self._hits[key]
+            while hits and now - hits[0] > self.period:
+                hits.popleft()
+            if not hits:
+                del self._hits[key]
+
         if identifier not in self._hits and len(self._hits) >= self.max_keys:
             self._hits.popitem(last=False)
 

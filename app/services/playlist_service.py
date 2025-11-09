@@ -43,14 +43,19 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
     if media is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Media item must be provided")
 
-    position = _reserve_next_position(db)
-    entry = PlaylistEntry(
-        media_id=media.id,
-        scheduled_start=payload.scheduled_start,
-        position=position,
-    )
-    db.add(entry)
-    db.flush()
+    try:
+        position = _reserve_next_position(db)
+        entry = PlaylistEntry(
+            media_id=media.id,
+            scheduled_start=payload.scheduled_start,
+            position=position,
+        )
+        db.add(entry)
+        db.flush()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return PlaylistItem(
         id=entry.id,
@@ -66,8 +71,13 @@ def remove_playlist_item(db: Session, item_id: int) -> None:
     entry = db.get(PlaylistEntry, item_id)
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
-    db.delete(entry)
-    db.flush()
+    try:
+        db.delete(entry)
+        db.flush()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[PlaylistItem]:
@@ -79,32 +89,38 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
 
     created: list[PlaylistItem] = []
 
-    next_position = _reserve_next_position(db)
+    try:
+        next_position = _reserve_next_position(db)
 
-    for item in planned_items:
-        media = db.get(MediaAsset, item.media_id)
-        if media is None:
-            continue
-        position = next_position
-        next_position += 1
-        entry = PlaylistEntry(
-            media_id=media.id,
-            scheduled_start=item.scheduled_start,
-            position=position,
-        )
-        db.add(entry)
-        db.flush()
-
-        created.append(
-            PlaylistItem(
-                id=entry.id,
+        for item in planned_items:
+            media = db.get(MediaAsset, item.media_id)
+            if media is None:
+                continue
+            position = next_position
+            next_position += 1
+            entry = PlaylistEntry(
                 media_id=media.id,
-                title=media.title,
-                genre=media.genre,
-                duration_seconds=media.duration_seconds,
-                scheduled_start=entry.scheduled_start,
+                scheduled_start=item.scheduled_start,
+                position=position,
             )
-        )
+            db.add(entry)
+            db.flush()
+
+            created.append(
+                PlaylistItem(
+                    id=entry.id,
+                    media_id=media.id,
+                    title=media.title,
+                    genre=media.genre,
+                    duration_seconds=media.duration_seconds,
+                    scheduled_start=entry.scheduled_start,
+                )
+            )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     return created
 

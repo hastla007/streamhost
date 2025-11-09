@@ -40,8 +40,8 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MIME type {upload.content_type} is not allowed")
 
     safe_name = secure_filename(upload.filename)
-    if not safe_name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to derive a safe filename")
+    if not safe_name or safe_name.startswith("."):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename supplied")
 
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
     unique_id = uuid.uuid4().hex[:8]
@@ -154,9 +154,11 @@ async def create_media(
         )
         db.add(asset)
         db.flush()
+        db.commit()
 
         return _to_media_item(asset)
     except Exception:
+        db.rollback()
         if destination and destination.exists():
             destination.unlink(missing_ok=True)
         raise

@@ -109,26 +109,30 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
-        db.commit()
     except Exception as exc:
         db.rollback()
         _log_and_raise(exc)
         raise
     finally:
+        if db.in_transaction():
+            db.rollback()
         db.close()
 
 
 @contextmanager
-def get_db_context() -> Generator[Session, None, None]:
+def get_db_context(*, commit_on_exit: bool = False) -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
-        db.commit()
+        if commit_on_exit:
+            db.commit()
     except Exception as exc:
         db.rollback()
         _log_and_raise(exc)
         raise
     finally:
+        if db.in_transaction():
+            db.rollback()
         db.close()
 
 

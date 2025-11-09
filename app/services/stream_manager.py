@@ -72,12 +72,14 @@ class StreamManager:
                 db.flush()
             except IntegrityError as exc:
                 logger.error("Database integrity violation when creating stream session", extra={"error": str(exc)})
+                db.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Conflicting stream session",
                 ) from exc
             except SQLAlchemyError as exc:
                 logger.error("Database error creating stream session", extra={"error": str(exc)})
+                db.rollback()
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Failed to create stream session",
@@ -91,12 +93,14 @@ class StreamManager:
                 session.status = "error"
                 session.last_error = f"Media file not found: {exc}"
                 db.flush()
+                db.rollback()
                 self._session_id = None
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
             except (OSError, PermissionError) as exc:
                 session.status = "error"
                 session.last_error = f"File access error: {exc}"
                 db.flush()
+                db.rollback()
                 self._session_id = None
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -106,6 +110,7 @@ class StreamManager:
                 session.status = "error"
                 session.last_error = str(exc)
                 db.flush()
+                db.rollback()
                 self._session_id = None
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -115,6 +120,7 @@ class StreamManager:
                 session.status = "error"
                 session.last_error = f"Unexpected error: {type(exc).__name__}"
                 db.flush()
+                db.rollback()
                 self._session_id = None
                 logger.exception("Unexpected failure starting stream")
                 raise HTTPException(
@@ -125,27 +131,53 @@ class StreamManager:
             session.status = "online"
             session.last_error = None
             db.flush()
+            try:
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                self._session_id = None
+                self._destination = None
+                self._encoder_name = "ffmpeg"
+                await live_stream_engine.stop_stream()
+                logger.exception("Failed to commit stream session state", extra={"error": str(exc)})
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to persist stream session",
+                ) from exc
 
             self._destination = destination
             self._encoder_name = self._encoder_display(encoder)
 
-            return await self.status()
+        return await self.status()
 
     async def stop(self, db: Session) -> None:
         async with self._lock:
-            await live_stream_engine.stop_stream()
-            if self._session_id:
-                session = db.get(StreamSession, self._session_id)
-                if session:
-                    session.status = "offline"
-                    session.ended_at = datetime.now(timezone.utc)
-                    db.flush()
-            self._session_id = None
-            self._destination = None
+            try:
+                await live_stream_engine.stop_stream()
+                if self._session_id:
+                    session = db.get(StreamSession, self._session_id)
+                    if session:
+                        session.status = "offline"
+                        session.ended_at = datetime.now(timezone.utc)
+                        db.flush()
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                logger.exception("Failed to persist stream stop", extra={"error": str(exc)})
+                raise
+            finally:
+                self._session_id = None
+                self._destination = None
+                self._encoder_name = "ffmpeg"
 
     async def status(self) -> StreamStatus:
-        snapshot = live_stream_engine.status_snapshot()
+        snapshot = await live_stream_engine.status_snapshot()
         running = await live_stream_engine.is_running()
+
+        async with self._lock:
+            destination = self._destination
+            encoder_name = self._encoder_name
+
         uptime = 0
         if running and snapshot.started_at:
             uptime = int((datetime.now(timezone.utc) - snapshot.started_at).total_seconds())
@@ -161,8 +193,8 @@ class StreamManager:
         return StreamStatus(
             status=status_text,
             uptime_seconds=uptime,
-            encoder=self._encoder_name,
-            target=self._destination,
+            encoder=encoder_name,
+            target=destination,
             playlist_id=snapshot.playlist_id,
             started_at=snapshot.started_at,
             last_error=snapshot.last_error,

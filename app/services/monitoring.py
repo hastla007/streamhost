@@ -24,9 +24,10 @@ class StreamMonitor:
         self._alert_channels: list[str] = ["email", "slack", "discord"]
 
     async def check_stream_health(self) -> HealthStatus:
-        metrics = await live_stream_engine.get_metrics()
-        playlist_id, started_at, last_error, _ = live_stream_engine.status_snapshot()
-
+        snapshot = await live_stream_engine.status_snapshot()
+        metrics = snapshot.metrics
+        started_at = snapshot.started_at
+        last_error = snapshot.last_error
         ffmpeg_running = await live_stream_engine.is_running()
         bitrate_target = settings.stream_bitrate
         bitrate_ok = metrics.bitrate_kbps >= int(bitrate_target * 0.7)

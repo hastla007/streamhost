@@ -50,6 +50,7 @@ class LiveStreamManager:
         self._plan: Optional[StreamLaunchPlan] = None
         self._restart_attempts = 0
         self._concat_file: Optional[Path] = None
+        self._concat_tempdir: Optional[tempfile.TemporaryDirectory] = None
         self._consecutive_failures = 0
         self._last_success_time: Optional[datetime] = None
 
@@ -119,8 +120,8 @@ class LiveStreamManager:
 
         for task in tasks_to_cancel:
             try:
-                await task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
         if self._process and self._process.returncode is None:
@@ -312,7 +313,9 @@ class LiveStreamManager:
             self._metrics = metrics
 
     def _create_concat_file(self, media_files: Iterable[Path]) -> Path:
-        playlist_dir = Path(tempfile.mkdtemp(prefix="streamhost_playlist_"))
+        self._cleanup_concat()
+        tempdir = tempfile.TemporaryDirectory(prefix="streamhost_playlist_")
+        playlist_dir = Path(tempdir.name)
         concat_file = playlist_dir / "playlist.txt"
         try:
             with concat_file.open("w", encoding="utf-8") as handle:
@@ -324,16 +327,17 @@ class LiveStreamManager:
                     escaped = normalized.replace("'", "'\\''")
                     handle.write(f"file '{escaped}'\n")
         except Exception:
-            shutil.rmtree(playlist_dir, ignore_errors=True)
+            tempdir.cleanup()
             raise
-        return concat_file
+        else:
+            self._concat_tempdir = tempdir
+            return concat_file
 
     def _cleanup_concat(self) -> None:
-        if self._concat_file is not None:
-            try:
-                shutil.rmtree(self._concat_file.parent, ignore_errors=True)
-            finally:
-                self._concat_file = None
+        if self._concat_tempdir is not None:
+            self._concat_tempdir.cleanup()
+            self._concat_tempdir = None
+        self._concat_file = None
 
     def _build_command(self, plan: StreamLaunchPlan, concat_file: Path) -> list[str]:
         PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
@@ -461,13 +465,14 @@ class LiveStreamManager:
 
         return command
 
-    def status_snapshot(self) -> StreamSnapshot:
-        return StreamSnapshot(
-            playlist_id=self._playlist_id,
-            started_at=self._started_at,
-            last_error=self._last_error,
-            metrics=self._metrics.model_copy(deep=True),
-        )
+    async def status_snapshot(self) -> StreamSnapshot:
+        async with self._lock:
+            return StreamSnapshot(
+                playlist_id=self._playlist_id,
+                started_at=self._started_at,
+                last_error=self._last_error,
+                metrics=self._metrics.model_copy(deep=True),
+            )
 
 
 live_stream_engine = LiveStreamManager()

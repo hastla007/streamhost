@@ -24,11 +24,16 @@ def get_settings(db: Session) -> SystemSettings:
 
 def update_settings(db: Session, payload: SystemSettings) -> SystemSettings:
     settings_row = db.scalar(select(SystemSetting).limit(1))
-    if not settings_row:
-        settings_row = SystemSetting(**payload.model_dump())
-        db.add(settings_row)
-    else:
-        for key, value in payload.model_dump().items():
-            setattr(settings_row, key, value)
-    db.flush()
+    try:
+        if not settings_row:
+            settings_row = SystemSetting(**payload.model_dump())
+            db.add(settings_row)
+        else:
+            for key, value in payload.model_dump().items():
+                setattr(settings_row, key, value)
+        db.flush()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return payload
