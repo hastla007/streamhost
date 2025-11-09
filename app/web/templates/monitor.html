@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% set title = "Monitor" %}
+{% block content %}
+<section class="grid">
+  <article class="card span-2">
+    <header>
+      <h2>Live Preview</h2>
+      <p class="subtitle">Monitor the adaptive HLS output directly from StreamHost.</p>
+    </header>
+    <div class="card-body">
+      <video id="stream-preview" class="preview-player" controls autoplay muted playsinline>
+        <source src="{{ preview_url }}" type="application/vnd.apple.mpegurl" />
+        Your browser does not support the preview element.
+      </video>
+      <div class="live-metrics" data-stream-status>
+        <div>
+          <span class="label">Status</span>
+          <span class="value status-{{ stream.status }}" data-field="status">{{ stream.status|title }}</span>
+        </div>
+        <div>
+          <span class="label">Bitrate</span>
+          <span class="value" data-field="bitrate">{{ stream.metrics.bitrate_kbps }} kbps</span>
+        </div>
+        <div>
+          <span class="label">Uptime</span>
+          <span class="value" data-field="uptime">{{ (stream.uptime_seconds / 3600)|round(2) }}</span>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
+    <header>
+      <h2>Health Checks</h2>
+      <p class="subtitle">Automated validations refreshed continuously.</p>
+    </header>
+    <ul class="list">
+      {% for name, ok in health.checks.items() %}
+      <li class="{{ 'ok' if ok else 'critical' }}">
+        <strong>{{ name.replace('_', ' ')|title }}</strong>
+        <span>{{ 'OK' if ok else 'Needs Attention' }}</span>
+      </li>
+      {% else %}
+      <li class="empty">No health data available.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="card">
+    <header>
+      <h2>Issues &amp; Alerts</h2>
+    </header>
+    <ul class="list alerts">
+      {% for issue in health.issues %}
+      <li class="{{ 'critical' if health.severity == 'critical' else 'warning' }}">{{ issue }}</li>
+      {% else %}
+      <li class="ok">Stream operating within nominal parameters.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}
