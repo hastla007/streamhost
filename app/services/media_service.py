@@ -110,7 +110,11 @@ def paginate_media(db: Session, *, limit: int, offset: int) -> tuple[list[MediaI
     """Return a paginated slice of media items and the total count."""
 
     total = db.scalar(select(func.count()).select_from(MediaAsset)) or 0
-    max_offset = max(0, total - 1)
+    if total == 0:
+        return [], 0
+
+    stride = max(1, limit)
+    max_offset = max(0, ((total - 1) // stride) * stride)
     safe_offset = min(offset, max_offset)
 
     stmt = (

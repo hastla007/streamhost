@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import tempfile
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +55,8 @@ class LiveStreamManager:
         self._concat_tempdir: Optional[tempfile.TemporaryDirectory] = None
         self._consecutive_failures = 0
         self._last_success_time: Optional[datetime] = None
+        self._stderr_lines: deque[str] = deque(maxlen=50)
+        self._is_restarting = False
 
         try:
             strategy = BackoffStrategy(settings.stream_restart_strategy.lower())
@@ -89,6 +93,8 @@ class LiveStreamManager:
             self._restart_attempts = 0
             self._consecutive_failures = 0
             self._last_success_time = None
+            self._stderr_lines.clear()
+            self._is_restarting = False
 
             await self._launch_process()
 
@@ -142,6 +148,8 @@ class LiveStreamManager:
         self._restart_attempts = 0
         self._consecutive_failures = 0
         self._last_success_time = None
+        self._stderr_lines.clear()
+        self._is_restarting = False
         self._cleanup_concat()
 
     async def get_metrics(self) -> StreamMetrics:
@@ -173,7 +181,7 @@ class LiveStreamManager:
         try:
             self._process = await asyncio.create_subprocess_exec(
                 *command,
-                stdout=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
         except Exception as exc:
@@ -184,20 +192,16 @@ class LiveStreamManager:
         self._started_at = datetime.now(timezone.utc)
         self._metrics = StreamMetrics()
         self._last_success_time = self._started_at
+        self._stderr_lines.clear()
 
-        self._progress_task = asyncio.create_task(self._capture_progress(self._process.stdout))
+        self._progress_task = asyncio.create_task(self._capture_progress(self._process.stderr))
         self._watchdog_task = asyncio.create_task(self._watch_process())
 
     async def _watch_process(self) -> None:
         assert self._process is not None
 
         return_code = await self._process.wait()
-        stderr = ""
-        if self._process.stderr:
-            try:
-                stderr = (await self._process.stderr.read()).decode("utf-8", "ignore")
-            except Exception:  # pragma: no cover - defensive
-                stderr = ""
+        stderr = "\n".join(self._stderr_lines)
 
         if return_code != 0:
             self._last_error = stderr.strip() or f"FFmpeg exited with code {return_code}"
@@ -213,55 +217,73 @@ class LiveStreamManager:
         assert self._plan is not None
 
         async with self._lock:
-            self._restart_attempts += 1
-            self._consecutive_failures += 1
-            attempts = self._restart_attempts
-            if attempts > settings.stream_restart_max_attempts:
-                logger.critical("Exceeded FFmpeg restart attempts", extra={"attempts": attempts})
-                await self._stop_locked()
+            if self._is_restarting or self._plan is None:
                 return
-
-            if self._last_success_time:
-                elapsed = datetime.now(timezone.utc) - self._last_success_time
-                if elapsed.total_seconds() > 300:
-                    logger.info("Resetting failure counter after stable run", extra={"seconds": int(elapsed.total_seconds())})
-                    self._consecutive_failures = 1
-
-            if self._process and self._process.returncode is None:
-                self._process.terminate()
-                try:
-                    await asyncio.wait_for(self._process.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    self._process.kill()
-                    await self._process.wait()
-
-            self._cleanup_concat()
-
-        try:
-            delay = self._retry_calculator.calculate_delay(attempts)
-        except ValueError:
-            delay = float(settings.stream_restart_max_delay)
-        logger.warning(
-            "Restarting FFmpeg after backoff",
-            extra={"attempt": attempts, "delay_seconds": f"{delay:.2f}", "consecutive_failures": self._consecutive_failures},
-        )
-        await asyncio.sleep(delay)
+            self._is_restarting = True
 
         success = False
-        async with self._lock:
-            if self._plan is None:
-                return
-            logger.info("Attempting FFmpeg restart", extra={"attempt": attempts})
-            try:
-                await self._launch_process()
-                self._consecutive_failures = 0
-                success = True
-            except StreamingError as exc:
-                self._last_error = str(exc)
-                logger.error("Failed to restart FFmpeg", extra={"attempt": attempts, "error": str(exc)})
+        attempts = 0
+        try:
+            async with self._lock:
+                self._restart_attempts += 1
+                self._consecutive_failures += 1
+                attempts = self._restart_attempts
+                if attempts > settings.stream_restart_max_attempts:
+                    logger.critical("Exceeded FFmpeg restart attempts", extra={"attempts": attempts})
+                    await self._stop_locked()
+                    return
 
-        if not success and self._plan is not None:
-            asyncio.create_task(self._handle_restart())
+                if self._last_success_time:
+                    elapsed = datetime.now(timezone.utc) - self._last_success_time
+                    if elapsed.total_seconds() > 300:
+                        logger.info(
+                            "Resetting failure counter after stable run",
+                            extra={"seconds": int(elapsed.total_seconds())},
+                        )
+                        self._consecutive_failures = 1
+
+                if self._process and self._process.returncode is None:
+                    self._process.terminate()
+                    try:
+                        await asyncio.wait_for(self._process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        self._process.kill()
+                        await self._process.wait()
+
+                self._cleanup_concat()
+
+            try:
+                delay = self._retry_calculator.calculate_delay(attempts)
+            except ValueError:
+                delay = float(settings.stream_restart_max_delay)
+
+            logger.warning(
+                "Restarting FFmpeg after backoff",
+                extra={
+                    "attempt": attempts,
+                    "delay_seconds": f"{delay:.2f}",
+                    "consecutive_failures": self._consecutive_failures,
+                },
+            )
+            await asyncio.sleep(delay)
+
+            async with self._lock:
+                if self._plan is None:
+                    return
+                logger.info("Attempting FFmpeg restart", extra={"attempt": attempts})
+                try:
+                    await self._launch_process()
+                    self._consecutive_failures = 0
+                    success = True
+                except StreamingError as exc:
+                    self._last_error = str(exc)
+                    logger.error("Failed to restart FFmpeg", extra={"attempt": attempts, "error": str(exc)})
+        finally:
+            async with self._lock:
+                self._is_restarting = False
+                pending_retry = self._plan is not None and not success
+            if pending_retry:
+                asyncio.create_task(self._handle_restart())
 
     async def _capture_progress(self, stream: Optional[asyncio.StreamReader]) -> None:
         if stream is None:
@@ -283,8 +305,14 @@ class LiveStreamManager:
                 continue
 
             decoded = line.decode("utf-8", "ignore").strip()
-            if not decoded or "=" not in decoded:
+            if not decoded:
                 continue
+
+            if "=" not in decoded:
+                async with self._lock:
+                    self._stderr_lines.append(decoded)
+                continue
+
             key, value = decoded.split("=", 1)
             await self._update_metrics(key, value)
 
@@ -324,8 +352,12 @@ class LiveStreamManager:
                     if not resolved.exists():
                         raise FileNotFoundError(f"Media file missing: {resolved}")
                     normalized = resolved.as_posix()
-                    escaped = normalized.replace("'", "'\\''")
-                    handle.write(f"file '{escaped}'\n")
+                    if os.name == "nt":
+                        escaped = normalized.replace("\"", "\"\"")
+                        handle.write(f"file \"{escaped}\"\n")
+                    else:
+                        escaped = normalized.replace("'", "'\\''")
+                        handle.write(f"file '{escaped}'\n")
         except Exception:
             tempdir.cleanup()
             raise
@@ -341,7 +373,15 @@ class LiveStreamManager:
 
     def _build_command(self, plan: StreamLaunchPlan, concat_file: Path) -> list[str]:
         PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+        threshold_seconds = max(settings.stream_preview_segment_seconds * 3, 30)
+        cutoff = datetime.now(timezone.utc).timestamp() - threshold_seconds
         for stale in PREVIEW_DIR.glob("*"):
+            try:
+                modified = stale.stat().st_mtime
+            except OSError:
+                continue
+            if modified > cutoff:
+                continue
             if stale.is_file():
                 stale.unlink(missing_ok=True)
             elif stale.is_dir():
@@ -359,7 +399,7 @@ class LiveStreamManager:
             "-i",
             str(concat_file),
             "-progress",
-            "pipe:1",
+            "pipe:2",
             "-nostats",
         ]
 

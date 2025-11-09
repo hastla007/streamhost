@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import asc, func, select, text
+from sqlalchemy import asc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -26,7 +26,11 @@ def list_playlist(db: Session, *, limit: int | None = None, offset: int = 0) -> 
 
 def paginate_playlist(db: Session, *, limit: int, offset: int) -> tuple[list[PlaylistItem], int]:
     total = db.scalar(select(func.count()).select_from(PlaylistEntry)) or 0
-    max_offset = max(0, total - 1)
+    if total == 0:
+        return [], 0
+
+    stride = max(1, limit)
+    max_offset = max(0, ((total - 1) // stride) * stride)
     safe_offset = min(offset, max_offset)
 
     items = list_playlist(db, limit=limit, offset=safe_offset)
@@ -92,14 +96,11 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
     created: list[PlaylistItem] = []
 
     try:
-        next_position = _reserve_next_position(db)
-
         for item in planned_items:
             media = db.get(MediaAsset, item.media_id)
             if media is None:
                 continue
-            position = next_position
-            next_position += 1
+            position = _reserve_next_position(db)
             entry = PlaylistEntry(
                 media_id=media.id,
                 scheduled_start=item.scheduled_start,
@@ -131,13 +132,11 @@ def _reserve_next_position(db: Session) -> int:
     """Return the next available playlist position using a locked query."""
 
     dialect_name = getattr(getattr(db.bind, "dialect", None), "name", "")
-    # Serialise concurrent callers with FOR UPDATE when the backend supports it.
-    # SQLite ignores locking hints, so we omit it there to avoid syntax errors.
-    base_query = "SELECT position FROM playlist_entry ORDER BY position DESC LIMIT 1"
-    if dialect_name and dialect_name != "sqlite":
-        base_query += " FOR UPDATE"
+    stmt = select(PlaylistEntry.position).order_by(PlaylistEntry.position.desc()).limit(1)
+    if dialect_name != "sqlite":
+        stmt = stmt.with_for_update()
 
-    result = db.execute(text(base_query)).scalar()
+    result = db.execute(stmt).scalar()
 
     if result is None:
         return 1

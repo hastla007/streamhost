@@ -95,6 +95,8 @@ class StreamManager:
                 db.flush()
                 db.rollback()
                 self._session_id = None
+                self._destination = None
+                self._encoder_name = "ffmpeg"
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
             except (OSError, PermissionError) as exc:
                 session.status = "error"
@@ -102,6 +104,8 @@ class StreamManager:
                 db.flush()
                 db.rollback()
                 self._session_id = None
+                self._destination = None
+                self._encoder_name = "ffmpeg"
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Cannot access media files",
@@ -112,6 +116,8 @@ class StreamManager:
                 db.flush()
                 db.rollback()
                 self._session_id = None
+                self._destination = None
+                self._encoder_name = "ffmpeg"
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=str(exc),
@@ -122,6 +128,8 @@ class StreamManager:
                 db.flush()
                 db.rollback()
                 self._session_id = None
+                self._destination = None
+                self._encoder_name = "ffmpeg"
                 logger.exception("Unexpected failure starting stream")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -234,8 +242,11 @@ class StreamManager:
 
         elif media_id:
             media = db.get(MediaAsset, media_id)
-            if media and media.file_path:
-                media_paths.append((media.id, Path(media.file_path)))
+            if not media:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
+            if not media.file_path:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file missing")
+            media_paths.append((media.id, Path(media.file_path)))
 
         if not media_paths:
             entries = (

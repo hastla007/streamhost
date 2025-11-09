@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -154,7 +155,7 @@ class CleanupService:
         return removed, bytes_freed
 
     def _cleanup_concat_files(self) -> tuple[int, int]:
-        temp_dir = Path("/tmp")
+        temp_dir = Path(tempfile.gettempdir())
         if not temp_dir.exists():
             return 0, 0
         cutoff = datetime.now() - timedelta(hours=1)

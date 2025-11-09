@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote_plus
 from typing import Any, Optional, Union
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
@@ -124,8 +125,10 @@ class Settings(BaseModel):
                 "DATABASE_URL must be provided or POSTGRES_PASSWORD must be set to build one"
             )
 
+        user = quote_plus(self.postgres_user)
+        password = quote_plus(self.postgres_password)
         self.database_url = (
-            f"postgresql+psycopg2://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+psycopg2://{user}:{password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
         return self

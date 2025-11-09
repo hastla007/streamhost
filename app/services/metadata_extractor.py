@@ -77,7 +77,6 @@ class MetadataExtractor:
         video_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
         audio_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
 
-        default_frame_rate = "30.0"
         frame_rate: Optional[str] = None
         if video_stream:
             frame_rate_raw = video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")
@@ -93,18 +92,16 @@ class MetadataExtractor:
                             "Division by zero parsing frame rate",
                             extra={"filepath": str(filepath), "raw": frame_rate_raw},
                         )
-                        frame_rate = default_frame_rate
                 except (ValueError, TypeError, AttributeError) as exc:
                     logger.warning(
                         "Failed to parse frame rate",
                         extra={"filepath": str(filepath), "raw": frame_rate_raw, "error": str(exc)},
                     )
-                    frame_rate = default_frame_rate
-            else:
-                frame_rate = default_frame_rate
-
-        if frame_rate is None:
-            frame_rate = default_frame_rate
+            elif frame_rate_raw:
+                logger.debug(
+                    "Frame rate information unavailable",
+                    extra={"filepath": str(filepath), "raw": frame_rate_raw},
+                )
 
         return _ProbeResult(
             duration_seconds=duration_seconds,

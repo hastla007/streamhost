@@ -117,7 +117,7 @@ class MediaList(BaseModel):
 class MediaUploadMetadata(BaseModel):
     title: str = Field(min_length=3, max_length=120)
     genre: str = Field(min_length=2, max_length=40)
-    duration_seconds: int = Field(gt=0, lt=12 * 3600)
+    duration_seconds: int = Field(gt=0, le=600 * 60)
 
 
 class SystemSettings(BaseModel):
