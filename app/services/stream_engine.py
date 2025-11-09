@@ -351,11 +351,13 @@ class LiveStreamManager:
                     resolved = path.resolve()
                     if not resolved.exists():
                         raise FileNotFoundError(f"Media file missing: {resolved}")
-                    normalized = resolved.as_posix()
+
                     if os.name == "nt":
-                        escaped = normalized.replace("\"", "\"\"")
+                        normalized = str(resolved)
+                        escaped = normalized.replace("\\", "\\\\").replace("\"", "\\\"")
                         handle.write(f"file \"{escaped}\"\n")
                     else:
+                        normalized = resolved.as_posix()
                         escaped = normalized.replace("'", "'\\''")
                         handle.write(f"file '{escaped}'\n")
         except Exception:
@@ -367,7 +369,10 @@ class LiveStreamManager:
 
     def _cleanup_concat(self) -> None:
         if self._concat_tempdir is not None:
-            self._concat_tempdir.cleanup()
+            try:
+                self._concat_tempdir.cleanup()
+            except (PermissionError, OSError) as exc:  # pragma: no cover - platform specific
+                logger.warning("Failed to cleanup concat directory", exc_info=exc)
             self._concat_tempdir = None
         self._concat_file = None
 
@@ -375,6 +380,8 @@ class LiveStreamManager:
         PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
         threshold_seconds = max(settings.stream_preview_segment_seconds * 3, 30)
         cutoff = datetime.now(timezone.utc).timestamp() - threshold_seconds
+        # Stream start is serialised by the engine lock, so clearing stale files here
+        # will not race with an already running encoder.
         for stale in PREVIEW_DIR.glob("*"):
             try:
                 modified = stale.stat().st_mtime

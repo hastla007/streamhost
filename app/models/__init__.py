@@ -47,7 +47,9 @@ class PlaylistEntry(TableNameMixin, TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media_asset.id", ondelete="CASCADE"), nullable=False)
     scheduled_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+    position: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, index=True, unique=True
+    )
 
     media: Mapped[MediaAsset] = relationship(back_populates="playlist_entries")
 
@@ -74,3 +76,10 @@ class StreamSession(TableNameMixin, TimestampMixin, Base):
     last_error: Mapped[Optional[str]] = mapped_column(Text)
 
     media: Mapped[Optional[MediaAsset]] = relationship(back_populates="stream_sessions")
+
+
+class PlaylistPositionCounter(TableNameMixin, TimestampMixin, Base):
+    """Tracks the next playlist position in a concurrency-safe manner."""
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

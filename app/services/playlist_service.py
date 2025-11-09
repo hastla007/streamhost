@@ -6,7 +6,7 @@ from sqlalchemy import asc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models import MediaAsset, PlaylistEntry
+from app.models import MediaAsset, PlaylistEntry, PlaylistPositionCounter
 from app.schemas import PlaylistCreate, PlaylistGenerationRequest, PlaylistItem
 from app.services.playlist_scheduler import playlist_scheduler
 
@@ -129,19 +129,22 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
 
 
 def _reserve_next_position(db: Session) -> int:
-    """Return the next available playlist position using a locked query."""
+    """Increment and return the global playlist position counter."""
 
     dialect_name = getattr(getattr(db.bind, "dialect", None), "name", "")
-    stmt = select(PlaylistEntry.position).order_by(PlaylistEntry.position.desc()).limit(1)
+    stmt = select(PlaylistPositionCounter).limit(1)
     if dialect_name != "sqlite":
         stmt = stmt.with_for_update()
 
-    result = db.execute(stmt).scalar()
+    counter = db.execute(stmt).scalars().first()
+    if counter is None:
+        counter = PlaylistPositionCounter(id=1, value=0)
+        db.add(counter)
+        db.flush()
 
-    if result is None:
-        return 1
-
-    return int(result) + 1
+    counter.value += 1
+    db.flush()
+    return counter.value
 
 
 def _serialize_entries(entries: list[PlaylistEntry]) -> list[PlaylistItem]:

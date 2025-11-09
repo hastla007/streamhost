@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import SystemSetting, User
+from app.models import PlaylistPositionCounter, SystemSetting, User
 from app.security.passwords import get_password_hash
 
 logger = logging.getLogger(__name__)
@@ -49,4 +49,15 @@ def init_database(db: Session) -> None:
 
     ensure_admin_user(db)
     ensure_default_settings(db)
+    ensure_playlist_counter(db)
     db.flush()
+
+
+def ensure_playlist_counter(db: Session) -> None:
+    """Ensure the playlist position counter row exists."""
+
+    counter = db.scalar(select(PlaylistPositionCounter).limit(1))
+    if counter:
+        return
+
+    db.add(PlaylistPositionCounter(id=1, value=0))

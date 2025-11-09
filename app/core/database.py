@@ -114,13 +114,7 @@ def get_db() -> Generator[Session, None, None]:
         _log_and_raise(exc)
         raise
     finally:
-        try:
-            if db.in_transaction():
-                db.rollback()
-        except Exception:
-            pass
-        finally:
-            db.close()
+        db.close()
 
 
 @contextmanager
@@ -135,13 +129,7 @@ def get_db_context(*, commit_on_exit: bool = False) -> Generator[Session, None, 
         _log_and_raise(exc)
         raise
     finally:
-        try:
-            if db.in_transaction():
-                db.rollback()
-        except Exception:
-            pass
-        finally:
-            db.close()
+        db.close()
 
 
 engine = _create_engine()
