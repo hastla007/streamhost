@@ -22,8 +22,8 @@ async function refreshStreamStatus() {
       statusField.textContent = payload.status.replace(/\b\w/g, (c) => c.toUpperCase());
       statusField.className = `value status-${payload.status}`;
     }
-    if (bitrateField) {
-      bitrateField.textContent = `${payload.bitrate_kbps} kbps`;
+    if (bitrateField && payload.metrics) {
+      bitrateField.textContent = `${payload.metrics.bitrate_kbps} kbps`;
     }
     if (uptimeField) {
       const hours = (payload.uptime_seconds / 3600).toFixed(2);

@@ -29,6 +29,13 @@ class MediaAsset(TableNameMixin, TimestampMixin, Base):
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     file_path: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
     checksum: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    video_codec: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    audio_codec: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    bitrate: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    frame_rate: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    thumbnail_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     playlist_entries: Mapped[list["PlaylistEntry"]] = relationship(back_populates="media")
 

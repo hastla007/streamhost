@@ -295,6 +295,36 @@ The FastAPI service renders the management dashboard at `http://localhost:8000/`
 navigation pages are now backed by live endpoints and enforce CSRF protection and
 rate limiting for all state-changing operations.
 
+### Live Streaming Engine
+
+- FFmpeg runs asynchronously with automatic restarts, NVENC/QSV/videotoolbox support,
+  and adaptive bitrate ladders (1080p/720p/480p) that simultaneously publish to RTMP
+  and generate a local HLS preview playlist.
+- Telemetry from `-progress` parsing feeds the API and dashboard with up-to-date frame,
+  bitrate, and speed metrics.
+
+### Intelligent Playlist Scheduler
+
+- `POST /api/v1/playlist/generate` uses the new scheduler to honor genre rotation,
+  repeat gaps, and scheduled events for multi-hour lineups.
+- Generated queues are persisted to PostgreSQL so the streaming engine can advance
+  through long-form playlists automatically.
+
+### Metadata Extraction & Secure Uploads
+
+- Uploads stream to disk with MIME and extension validation, SHA-256 checksums, and
+  ffprobe-powered metadata enrichment (resolution, codecs, bitrate, thumbnail).
+- The media gallery surfaces the extracted metadata so operators can confirm
+  transcode readiness without leaving the dashboard.
+
+### Monitoring & Preview
+
+- `/monitor` renders a live HLS preview (`/api/v1/stream/preview.m3u8`) with real-time
+  metrics and aggregated health checks (bitrate stability, resource usage, FFmpeg
+  process state).
+- The monitor service issues warning/critical alerts via the logging pipeline whenever
+  thresholds are breached, ensuring 24/7 operations can react quickly.
+
 ### API Examples
 
 - Health probe:

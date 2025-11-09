@@ -11,7 +11,7 @@ from app.core.database import get_db
 from app.core.security import form_csrf_protect, generate_csrf_token
 from app.schemas import PlaylistCreate, SystemSettings
 from app.models import MediaAsset
-from app.services import media_service, playlist_service, settings_service
+from app.services import media_service, playlist_service, settings_service, stream_monitor
 from app.services.stream_manager import stream_manager
 
 router = APIRouter()
@@ -28,10 +28,10 @@ def _common_context(request: Request) -> dict:
 
 
 @router.get("/", response_class=HTMLResponse)
-def home(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+async def home(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     context = _common_context(request)
     playlist_preview = playlist_service.list_playlist(db)[:3]
-    stream = stream_manager.status()
+    stream = await stream_manager.status()
     context.update(
         {
             "stream": stream,
@@ -140,3 +140,19 @@ async def settings_submit(
     )
     settings_service.update_settings(db, payload)
     return RedirectResponse(url="/settings", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/monitor", response_class=HTMLResponse)
+async def monitor(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    context = _common_context(request)
+    stream = await stream_manager.status()
+    health = await stream_monitor.check_stream_health()
+    await stream_monitor.alert_if_needed(health)
+    context.update(
+        {
+            "stream": stream,
+            "health": health,
+            "preview_url": "/api/v1/stream/preview.m3u8",
+        }
+    )
+    return templates.TemplateResponse("monitor.html", context)

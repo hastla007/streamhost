@@ -17,3 +17,4 @@ python-jose[cryptography]==3.3.0
 python-magic==0.4.27
 aiofiles==23.2.1
 werkzeug==3.0.1
+psutil==5.9.8

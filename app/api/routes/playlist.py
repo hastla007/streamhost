@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.core.security import csrf_protect, enforce_rate_limit
-from app.schemas import PlaylistCreate, PlaylistItem, PlaylistResponse
+from app.schemas import PlaylistCreate, PlaylistGenerationRequest, PlaylistItem, PlaylistResponse
 from app.services import playlist_service
 
 router = APIRouter(dependencies=[Depends(enforce_rate_limit), Depends(get_current_user)])
@@ -42,3 +42,16 @@ def delete_playlist_item(item_id: int, db: Session = Depends(get_db)) -> None:
     """Remove an item from the playlist if it exists."""
 
     playlist_service.remove_playlist_item(db, item_id)
+
+
+@router.post(
+    "/generate",
+    response_model=PlaylistResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(csrf_protect)],
+)
+def generate_playlist(payload: PlaylistGenerationRequest, db: Session = Depends(get_db)) -> PlaylistResponse:
+    """Generate a playlist using the intelligent scheduler."""
+
+    items = playlist_service.generate_playlist(db, payload)
+    return PlaylistResponse(items=items)

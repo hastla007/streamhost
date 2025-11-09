@@ -6,7 +6,8 @@ from sqlalchemy import asc, select
 from sqlalchemy.orm import Session
 
 from app.models import MediaAsset, PlaylistEntry
-from app.schemas import PlaylistCreate, PlaylistItem
+from app.schemas import PlaylistCreate, PlaylistGenerationRequest, PlaylistItem
+from app.services.playlist_scheduler import playlist_scheduler
 
 
 def list_playlist(db: Session) -> list[PlaylistItem]:
@@ -18,6 +19,7 @@ def list_playlist(db: Session) -> list[PlaylistItem]:
     return [
         PlaylistItem(
             id=entry.id,
+            media_id=entry.media_id,
             title=entry.media.title,
             genre=entry.media.genre,
             duration_seconds=entry.media.duration_seconds,
@@ -46,6 +48,7 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
 
     return PlaylistItem(
         id=entry.id,
+        media_id=media.id,
         title=media.title,
         genre=media.genre,
         duration_seconds=media.duration_seconds,
@@ -59,3 +62,39 @@ def remove_playlist_item(db: Session, item_id: int) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     db.delete(entry)
     db.flush()
+
+
+def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[PlaylistItem]:
+    """Generate and persist a long-running playlist based on strategy rules."""
+
+    planned_items = playlist_scheduler.generate_playlist(db, request)
+    if not planned_items:
+        return []
+
+    position = db.scalar(select(PlaylistEntry.position).order_by(PlaylistEntry.position.desc())) or 0
+    created: list[PlaylistItem] = []
+
+    for offset, item in enumerate(planned_items, start=1):
+        media = db.get(MediaAsset, item.media_id)
+        if media is None:
+            continue
+        entry = PlaylistEntry(
+            media_id=media.id,
+            scheduled_start=item.scheduled_start,
+            position=position + offset,
+        )
+        db.add(entry)
+        db.flush()
+
+        created.append(
+            PlaylistItem(
+                id=entry.id,
+                media_id=media.id,
+                title=media.title,
+                genre=media.genre,
+                duration_seconds=media.duration_seconds,
+                scheduled_start=entry.scheduled_start,
+            )
+        )
+
+    return created

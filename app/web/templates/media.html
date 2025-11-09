@@ -25,6 +25,15 @@
       <div class="chip-group">
         <span class="chip">Path: {{ item.file_path }}</span>
         <span class="chip">Added {{ item.created_at.strftime('%Y-%m-%d') }}</span>
+        {% if item.width and item.height %}
+        <span class="chip">{{ item.width }}x{{ item.height }}</span>
+        {% endif %}
+        {% if item.video_codec %}
+        <span class="chip">Video: {{ item.video_codec|upper }}</span>
+        {% endif %}
+        {% if item.audio_codec %}
+        <span class="chip">Audio: {{ item.audio_codec|upper }}</span>
+        {% endif %}
       </div>
     </div>
   </article>

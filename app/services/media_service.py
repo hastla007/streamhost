@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 from app.core.config import settings
 from app.models import MediaAsset
 from app.schemas import MediaItem
+from app.services.metadata_extractor import metadata_extractor
 
 MEDIA_ROOT = Path(os.getenv("MOVIES_DIR", settings.media_root))
 MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
@@ -96,6 +97,13 @@ def list_media(db: Session) -> list[MediaItem]:
             duration_seconds=item.duration_seconds,
             file_path=item.file_path,
             created_at=item.created_at,
+            width=item.width,
+            height=item.height,
+            video_codec=item.video_codec,
+            audio_codec=item.audio_codec,
+            bitrate=item.bitrate,
+            frame_rate=item.frame_rate,
+            thumbnail_path=item.thumbnail_path,
         )
         for item in items
     ]
@@ -112,12 +120,21 @@ async def create_media(
     """Persist an uploaded media file and return its metadata."""
 
     destination, _received, checksum, _mime = await _save_upload_securely(upload)
+    metadata = await metadata_extractor.extract_metadata(destination)
+
     asset = MediaAsset(
-        title=title,
-        genre=genre,
-        duration_seconds=duration_seconds,
+        title=metadata.title or title,
+        genre=genre or metadata.genre or "unknown",
+        duration_seconds=metadata.duration_seconds or duration_seconds,
         file_path=str(destination),
         checksum=checksum,
+        width=metadata.width,
+        height=metadata.height,
+        video_codec=metadata.video_codec,
+        audio_codec=metadata.audio_codec,
+        bitrate=metadata.bitrate,
+        frame_rate=metadata.frame_rate,
+        thumbnail_path=metadata.thumbnail_path,
     )
     db.add(asset)
     db.flush()
@@ -129,4 +146,11 @@ async def create_media(
         duration_seconds=asset.duration_seconds,
         file_path=asset.file_path,
         created_at=asset.created_at,
+        width=asset.width,
+        height=asset.height,
+        video_codec=asset.video_codec,
+        audio_codec=asset.audio_codec,
+        bitrate=asset.bitrate,
+        frame_rate=asset.frame_rate,
+        thumbnail_path=asset.thumbnail_path,
     )
