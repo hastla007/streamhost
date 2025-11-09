@@ -178,7 +178,7 @@ class ServerSessionMiddleware(BaseHTTPMiddleware):
         session: Optional[ServerSession] = None
 
         if session_id:
-            session = self._manager.load(session_id)
+            session = await asyncio.to_thread(self._manager.load, session_id)
 
         if session is None:
             session = self._manager.create()
@@ -189,7 +189,7 @@ class ServerSessionMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         if session.is_modified() or SESSION_COOKIE_NAME not in request.cookies:
-            session.save()
+            await asyncio.to_thread(session.save)
             response.set_cookie(
                 SESSION_COOKIE_NAME,
                 session_id,
@@ -200,7 +200,7 @@ class ServerSessionMiddleware(BaseHTTPMiddleware):
             )
         else:
             key = f"{SESSION_PREFIX}{session.session_id}"
-            self._manager._redis.expire(key, SESSION_MAX_AGE)
+            await asyncio.to_thread(self._manager._redis.expire, key, SESSION_MAX_AGE)
 
         return response
 

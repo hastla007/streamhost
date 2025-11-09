@@ -143,9 +143,10 @@ class Settings(BaseModel):
 
         user = quote_plus(self.postgres_user)
         password = quote_plus(self.postgres_password)
+        db_name = quote_plus(self.postgres_db)
         self.database_url = (
             f"postgresql+psycopg2://{user}:{password}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+            f"@{self.postgres_host}:{self.postgres_port}/{db_name}"
         )
         return self
 

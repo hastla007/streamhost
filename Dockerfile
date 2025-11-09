@@ -25,7 +25,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
 # Ensure directories expected by the application exist
-RUN mkdir -p /app/data/movies /app/data/cache /app/data/assets /app/data/backups
+RUN mkdir -p /app/data/movies /app/data/cache /app/data/assets /app/data/backups \
+    && useradd -m -u 1000 streamhost \
+    && chown -R streamhost:streamhost /app
+
+USER streamhost
 
 EXPOSE 8000
 

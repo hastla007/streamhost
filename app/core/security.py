@@ -65,29 +65,31 @@ class RateLimiter:
         self.period = period
         self.max_keys = max_keys
         self._hits: OrderedDict[str, Deque[float]] = OrderedDict()
+        self._lock = threading.Lock()
 
     def check(self, identifier: str) -> None:
-        now = time.time()
+        with self._lock:
+            now = time.time()
 
-        for key in list(self._hits.keys()):
-            hits = self._hits[key]
+            for key in list(self._hits.keys()):
+                hits = self._hits[key]
+                while hits and now - hits[0] > self.period:
+                    hits.popleft()
+                if not hits:
+                    del self._hits[key]
+
+            if identifier not in self._hits and len(self._hits) >= self.max_keys:
+                self._hits.popitem(last=False)
+
+            hits = self._hits.setdefault(identifier, deque())
+
             while hits and now - hits[0] > self.period:
                 hits.popleft()
-            if not hits:
-                del self._hits[key]
 
-        if identifier not in self._hits and len(self._hits) >= self.max_keys:
-            self._hits.popitem(last=False)
+            if len(hits) >= self.calls:
+                raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded")
 
-        hits = self._hits.setdefault(identifier, deque())
-
-        while hits and now - hits[0] > self.period:
-            hits.popleft()
-
-        if len(hits) >= self.calls:
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded")
-
-        hits.append(now)
+            hits.append(now)
 
 
 redis_client: Optional[Redis] = None

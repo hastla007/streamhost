@@ -244,10 +244,12 @@ class StreamManager:
                 .all()
             )
             # Collect from the selected entry onward to keep playback continuous.
+            found_start = False
             for entry in entries:
-                if entry.id == playlist_entry_id or media_paths:
-                    if entry.media and entry.media.file_path:
-                        media_paths.append((entry.media_id, Path(entry.media.file_path)))
+                if entry.id == playlist_entry_id:
+                    found_start = True
+                if found_start and entry.media and entry.media.file_path:
+                    media_paths.append((entry.media_id, Path(entry.media.file_path)))
 
             if not media_paths:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playlist entry not found")
