@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import Annotated, Any, Dict
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -12,6 +12,7 @@ from starlette.templating import Jinja2Templates
 
 from app.core.database import get_db
 from app.core.security import form_csrf_protect, generate_csrf_token
+from app.core.types import BaseContext, PaginationInfo
 from app.schemas import PlaylistCreate, SystemSettings
 from app.models import MediaAsset
 from app.services import media_service, playlist_service, settings_service, stream_monitor
@@ -22,12 +23,12 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
 
-def _common_context(request: Request) -> Dict[str, Any]:
-    csrf_token = request.session.get("_csrf_token") or generate_csrf_token(request)
-    return {
-        "request": request,
-        "csrf_token": csrf_token,
-    }
+def _common_context(request: Request) -> BaseContext:
+    session = getattr(request.state, "session", None)
+    token = session.get("_csrf_token") if session else request.session.get("_csrf_token")
+    if token is None:
+        token = generate_csrf_token(request)
+    return BaseContext(request=request, csrf_token=token)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -68,26 +69,28 @@ def playlist(
     )
     media_pages = max(1, math.ceil(media_total / media_page_size))
 
+    playlist_pagination: PaginationInfo = {
+        "page": playlist_page,
+        "pages": playlist_pages,
+        "page_size": playlist_page_size,
+        "total": playlist_total,
+        "page_param": "playlist_page",
+        "size_param": "playlist_page_size",
+    }
+    media_pagination: PaginationInfo = {
+        "page": media_page,
+        "pages": media_pages,
+        "page_size": media_page_size,
+        "total": media_total,
+        "page_param": "media_page",
+        "size_param": "media_page_size",
+    }
     context.update(
         {
             "playlist": playlist_items,
-            "playlist_pagination": {
-                "page": playlist_page,
-                "pages": playlist_pages,
-                "page_size": playlist_page_size,
-                "total": playlist_total,
-                "page_param": "playlist_page",
-                "size_param": "playlist_page_size",
-            },
+            "playlist_pagination": playlist_pagination,
             "media": media_items,
-            "media_pagination": {
-                "page": media_page,
-                "pages": media_pages,
-                "page_size": media_page_size,
-                "total": media_total,
-                "page_param": "media_page",
-                "size_param": "media_page_size",
-            },
+            "media_pagination": media_pagination,
         }
     )
     return templates.TemplateResponse("playlist.html", context)
@@ -138,15 +141,18 @@ def media(
     offset = (page - 1) * page_size
     media_items, total = media_service.paginate_media(db, limit=page_size, offset=offset)
     pages = max(1, math.ceil(total / page_size))
+    media_pagination: PaginationInfo = {
+        "page": page,
+        "pages": pages,
+        "page_size": page_size,
+        "total": total,
+        "page_param": "page",
+        "size_param": "page_size",
+    }
     context.update(
         {
             "media": media_items,
-            "media_pagination": {
-                "page": page,
-                "pages": pages,
-                "page_size": page_size,
-                "total": total,
-            },
+            "media_pagination": media_pagination,
         }
     )
     return templates.TemplateResponse("media.html", context)

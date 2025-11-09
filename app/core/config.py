@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from dotenv import load_dotenv
@@ -66,8 +66,9 @@ class Settings(BaseModel):
     log_backup_count: int = Field(5, validation_alias="LOG_BACKUP_COUNT")
 
     stream_restart_base_delay: int = Field(5, validation_alias="STREAM_RESTART_BASE_DELAY")
-    stream_restart_max_delay: int = Field(15, validation_alias="STREAM_RESTART_MAX_DELAY")
-    stream_restart_max_attempts: int = Field(3, validation_alias="STREAM_RESTART_MAX_ATTEMPTS")
+    stream_restart_max_delay: int = Field(300, validation_alias="STREAM_RESTART_MAX_DELAY")
+    stream_restart_max_attempts: int = Field(10, validation_alias="STREAM_RESTART_MAX_ATTEMPTS")
+    stream_restart_strategy: str = Field("exponential", validation_alias="STREAM_RESTART_STRATEGY")
     stream_preview_segment_seconds: int = Field(4, validation_alias="STREAM_PREVIEW_SEGMENT_SECONDS")
 
     class Config:
@@ -75,7 +76,7 @@ class Settings(BaseModel):
 
     @field_validator("cors_origins", mode="before")
     @classmethod
-    def parse_cors_origins(cls, value: Any) -> list[str]:  # type: ignore[override]
+    def parse_cors_origins(cls, value: Union[str, list[str], None]) -> list[str]:
         if isinstance(value, str):
             parts = [origin.strip() for origin in value.split(",")]
             return [origin for origin in parts if origin]

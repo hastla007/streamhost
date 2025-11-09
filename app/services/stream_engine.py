@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from app.core.config import settings
+from app.core.retry import BackoffStrategy, RetryCalculator, RetryConfig
+from app.core.types import StreamSnapshot
+from app.core.exceptions import StreamingError
 from app.schemas import StreamMetrics
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,23 @@ class LiveStreamManager:
         self._plan: Optional[StreamLaunchPlan] = None
         self._restart_attempts = 0
         self._concat_file: Optional[Path] = None
+        self._consecutive_failures = 0
+        self._last_success_time: Optional[datetime] = None
+
+        try:
+            strategy = BackoffStrategy(settings.stream_restart_strategy.lower())
+        except ValueError:
+            strategy = BackoffStrategy.EXPONENTIAL
+
+        self._retry_calculator = RetryCalculator(
+            RetryConfig(
+                base_delay=float(settings.stream_restart_base_delay),
+                max_delay=float(settings.stream_restart_max_delay),
+                max_attempts=settings.stream_restart_max_attempts,
+                strategy=strategy,
+                jitter=True,
+            )
+        )
 
     async def start_stream(self, plan: StreamLaunchPlan) -> None:
         """Start streaming using the provided launch plan."""
@@ -66,6 +86,8 @@ class LiveStreamManager:
             self._playlist_id = plan.playlist_id
             self._last_error = None
             self._restart_attempts = 0
+            self._consecutive_failures = 0
+            self._last_success_time = None
 
             await self._launch_process()
 
@@ -117,6 +139,8 @@ class LiveStreamManager:
         self._playlist_id = None
         self._plan = None
         self._restart_attempts = 0
+        self._consecutive_failures = 0
+        self._last_success_time = None
         self._cleanup_concat()
 
     async def get_metrics(self) -> StreamMetrics:
@@ -145,13 +169,20 @@ class LiveStreamManager:
         command = self._build_command(self._plan, concat_file)
         logger.info("Starting FFmpeg", extra={"command": command})
 
-        self._process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except Exception as exc:
+            self._last_error = str(exc)
+            logger.exception("Failed to launch FFmpeg")
+            raise StreamingError(f"Failed to launch FFmpeg: {exc}") from exc
+
         self._started_at = datetime.now(timezone.utc)
         self._metrics = StreamMetrics()
+        self._last_success_time = self._started_at
 
         self._progress_task = asyncio.create_task(self._capture_progress(self._process.stdout))
         self._watchdog_task = asyncio.create_task(self._watch_process())
@@ -173,6 +204,8 @@ class LiveStreamManager:
             await self._handle_restart()
         else:
             logger.info("FFmpeg completed normally")
+            async with self._lock:
+                self._last_success_time = datetime.now(timezone.utc)
             await self.stop_stream()
 
     async def _handle_restart(self) -> None:
@@ -180,11 +213,18 @@ class LiveStreamManager:
 
         async with self._lock:
             self._restart_attempts += 1
+            self._consecutive_failures += 1
             attempts = self._restart_attempts
             if attempts > settings.stream_restart_max_attempts:
-                logger.critical("Exceeded FFmpeg restart attempts")
+                logger.critical("Exceeded FFmpeg restart attempts", extra={"attempts": attempts})
                 await self._stop_locked()
                 return
+
+            if self._last_success_time:
+                elapsed = datetime.now(timezone.utc) - self._last_success_time
+                if elapsed.total_seconds() > 300:
+                    logger.info("Resetting failure counter after stable run", extra={"seconds": int(elapsed.total_seconds())})
+                    self._consecutive_failures = 1
 
             if self._process and self._process.returncode is None:
                 self._process.terminate()
@@ -196,15 +236,31 @@ class LiveStreamManager:
 
             self._cleanup_concat()
 
-        base_delay = settings.stream_restart_base_delay
-        max_delay = settings.stream_restart_max_delay
-        await asyncio.sleep(min(base_delay * attempts, max_delay))
+        try:
+            delay = self._retry_calculator.calculate_delay(attempts)
+        except ValueError:
+            delay = float(settings.stream_restart_max_delay)
+        logger.warning(
+            "Restarting FFmpeg after backoff",
+            extra={"attempt": attempts, "delay_seconds": f"{delay:.2f}", "consecutive_failures": self._consecutive_failures},
+        )
+        await asyncio.sleep(delay)
 
+        success = False
         async with self._lock:
             if self._plan is None:
                 return
-            logger.info("Restarting FFmpeg", extra={"attempt": attempts})
-            await self._launch_process()
+            logger.info("Attempting FFmpeg restart", extra={"attempt": attempts})
+            try:
+                await self._launch_process()
+                self._consecutive_failures = 0
+                success = True
+            except StreamingError as exc:
+                self._last_error = str(exc)
+                logger.error("Failed to restart FFmpeg", extra={"attempt": attempts, "error": str(exc)})
+
+        if not success and self._plan is not None:
+            asyncio.create_task(self._handle_restart())
 
     async def _capture_progress(self, stream: Optional[asyncio.StreamReader]) -> None:
         if stream is None:
@@ -233,7 +289,7 @@ class LiveStreamManager:
 
     async def _update_metrics(self, key: str, value: str) -> None:
         async with self._lock:
-            metrics = self._metrics.model_copy()
+            metrics = self._metrics.model_copy(deep=True)
             try:
                 if key == "frame":
                     metrics.frame = int(value)
@@ -403,10 +459,13 @@ class LiveStreamManager:
 
         return command
 
-    def status_snapshot(
-        self,
-    ) -> tuple[Optional[int], Optional[datetime], Optional[str], StreamMetrics]:
-        return self._playlist_id, self._started_at, self._last_error, self._metrics
+    def status_snapshot(self) -> StreamSnapshot:
+        return StreamSnapshot(
+            playlist_id=self._playlist_id,
+            started_at=self._started_at,
+            last_error=self._last_error,
+            metrics=self._metrics.model_copy(deep=True),
+        )
 
 
 live_stream_engine = LiveStreamManager()

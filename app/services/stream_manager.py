@@ -9,9 +9,11 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import asc, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.exceptions import StreamingError
 from app.models import MediaAsset, PlaylistEntry, StreamSession
 from app.schemas import StreamMetrics, StreamStatus
 from app.services.stream_engine import StreamLaunchPlan, live_stream_engine
@@ -68,11 +70,17 @@ class StreamManager:
             try:
                 db.add(session)
                 db.flush()
-            except Exception as exc:
-                logger.exception("Failed to persist stream session")
+            except IntegrityError as exc:
+                logger.error("Database integrity violation when creating stream session", extra={"error": str(exc)})
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Conflicting stream session",
+                ) from exc
+            except SQLAlchemyError as exc:
+                logger.error("Database error creating stream session", extra={"error": str(exc)})
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to persist stream session",
+                    detail="Failed to create stream session",
                 ) from exc
 
             self._session_id = session.id
@@ -81,28 +89,41 @@ class StreamManager:
                 await live_stream_engine.start_stream(plan)
             except FileNotFoundError as exc:
                 session.status = "error"
+                session.last_error = f"Media file not found: {exc}"
                 db.flush()
                 self._session_id = None
-                await live_stream_engine.stop_stream()
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-            except RuntimeError as exc:
+            except (OSError, PermissionError) as exc:
                 session.status = "error"
+                session.last_error = f"File access error: {exc}"
                 db.flush()
                 self._session_id = None
-                await live_stream_engine.stop_stream()
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
-            except Exception as exc:
-                session.status = "error"
-                db.flush()
-                self._session_id = None
-                await live_stream_engine.stop_stream()
-                logger.exception("Failed to start streaming pipeline")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to start streaming pipeline",
+                    detail="Cannot access media files",
+                ) from exc
+            except StreamingError as exc:
+                session.status = "error"
+                session.last_error = str(exc)
+                db.flush()
+                self._session_id = None
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=str(exc),
+                ) from exc
+            except Exception as exc:
+                session.status = "error"
+                session.last_error = f"Unexpected error: {type(exc).__name__}"
+                db.flush()
+                self._session_id = None
+                logger.exception("Unexpected failure starting stream")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Unexpected streaming error",
                 ) from exc
 
             session.status = "online"
+            session.last_error = None
             db.flush()
 
             self._destination = destination
@@ -123,18 +144,18 @@ class StreamManager:
             self._destination = None
 
     async def status(self) -> StreamStatus:
-        playlist_id, started_at, last_error, metrics = live_stream_engine.status_snapshot()
+        snapshot = live_stream_engine.status_snapshot()
         running = await live_stream_engine.is_running()
         uptime = 0
-        if running and started_at:
-            uptime = int((datetime.now(timezone.utc) - started_at).total_seconds())
+        if running and snapshot.started_at:
+            uptime = int((datetime.now(timezone.utc) - snapshot.started_at).total_seconds())
 
         status_text = "offline"
         if running:
             status_text = "online"
-        elif last_error:
+        elif snapshot.last_error:
             status_text = "error"
-        elif playlist_id is not None:
+        elif snapshot.playlist_id is not None:
             status_text = "starting"
 
         return StreamStatus(
@@ -142,10 +163,10 @@ class StreamManager:
             uptime_seconds=uptime,
             encoder=self._encoder_name,
             target=self._destination,
-            playlist_id=playlist_id,
-            started_at=started_at,
-            last_error=last_error,
-            metrics=metrics if isinstance(metrics, StreamMetrics) else StreamMetrics(),
+            playlist_id=snapshot.playlist_id,
+            started_at=snapshot.started_at,
+            last_error=snapshot.last_error,
+            metrics=snapshot.metrics if isinstance(snapshot.metrics, StreamMetrics) else StreamMetrics(),
             last_updated=datetime.now(timezone.utc),
         )
 

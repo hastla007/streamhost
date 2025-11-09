@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
-from app.core.database import get_db, get_db_context
+from app.core.database import check_pool_health, get_db, get_db_context
 from app.core.security import enforce_rate_limit, redis_client
 from app.schemas import DEFAULT_ERROR_RESPONSES, HealthResponse, StreamStatus
 from app.services.stream_engine import PREVIEW_DIR
@@ -143,15 +143,25 @@ async def health_check() -> HealthResponse:
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as exc:  # pragma: no cover - depends on ffmpeg availability
         issues.append(f"FFmpeg: {exc}")
 
+    pool_ok, pool_message = await asyncio.to_thread(check_pool_health)
+    if not pool_ok:
+        issues.append(f"Database pool: {pool_message}")
+
     if not issues:
         status_text = "healthy"
+        details = None
     elif len(issues) <= 1:
         status_text = "degraded"
+        details = {"issues": issues}
     else:
         status_text = "unhealthy"
+        details = {"issues": issues}
+
+    if details is None and pool_message:
+        details = {"pool": pool_message}
 
     return HealthResponse(
         status=status_text,
         timestamp=datetime.utcnow(),
-        details={"issues": issues} if issues else None,
+        details=details,
     )

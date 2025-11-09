@@ -1,6 +1,7 @@
 """Security helpers for CSRF protection and rate limiting."""
 from __future__ import annotations
 
+import logging
 import secrets
 import threading
 import time
@@ -8,26 +9,39 @@ from collections import OrderedDict, deque
 from typing import Deque, Optional
 
 from fastapi import HTTPException, Request
-from redis import Redis
+from redis import Redis, exceptions as redis_exceptions
 from starlette import status
 
 from app.core.config import settings
+from app.core.exceptions import RedisConnectionError
+
+logger = logging.getLogger(__name__)
 
 _CSRF_SESSION_KEY = "_csrf_token"
+
+
+def _get_session_container(request: Request):
+    """Return the session container for the request."""
+
+    if hasattr(request.state, "session"):
+        return request.state.session
+    return request.session
 
 
 def generate_csrf_token(request: Request) -> str:
     """Create and persist a CSRF token in the session."""
 
     token = secrets.token_urlsafe(32)
-    request.session[_CSRF_SESSION_KEY] = token
+    session = _get_session_container(request)
+    session[_CSRF_SESSION_KEY] = token
     return token
 
 
 def validate_csrf(request: Request, token: str | None) -> None:
     """Validate the supplied CSRF token against the session."""
 
-    expected = request.session.get(_CSRF_SESSION_KEY)
+    session = _get_session_container(request)
+    expected = session.get(_CSRF_SESSION_KEY)
     if not expected or not token:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing CSRF token")
 
@@ -73,10 +87,20 @@ def _init_redis_client() -> Optional[Redis]:  # pragma: no cover - external depe
             socket_connect_timeout=5,
         )
         client.ping()
+        logger.info("Redis client initialised", extra={"url": settings.redis_url.split("@")[ -1 ]})
         return client
-    except Exception as exc:
-        print(f"WARNING: Redis unavailable, falling back to in-memory rate limiting: {exc}")
+    except (redis_exceptions.ConnectionError, redis_exceptions.TimeoutError) as exc:
+        logger.warning(
+            "Redis connection failed; using in-memory rate limiting",
+            extra={"error": str(exc)},
+        )
         return None
+    except redis_exceptions.AuthenticationError as exc:
+        logger.error("Redis authentication failed", extra={"error": str(exc)})
+        return None
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Unexpected error initialising Redis")
+        raise RedisConnectionError(f"Failed to initialise Redis: {exc}") from exc
 
 
 def check_redis_connection() -> bool:
@@ -93,7 +117,7 @@ def check_redis_connection() -> bool:
     try:
         redis_client.ping()
         return True
-    except Exception:
+    except redis_exceptions.RedisError:
         with _redis_lock:
             redis_client = None
         return False

@@ -13,6 +13,7 @@ from typing import Optional
 import ffmpeg
 
 from app.core.config import settings
+from app.core.exceptions import MetadataExtractionError
 from app.schemas import MediaMetadata
 
 logger = logging.getLogger(__name__)
@@ -57,9 +58,16 @@ class MetadataExtractor:
     def _probe_file(self, filepath: Path) -> _ProbeResult:
         try:
             data = ffmpeg.probe(str(filepath))
-        except (ffmpeg.Error, OSError, ValueError) as exc:  # pragma: no cover - depends on ffmpeg
-            logger.error("ffprobe failed", exc_info=exc)
-            raise RuntimeError("Failed to probe media") from exc
+        except ffmpeg.Error as exc:  # pragma: no cover - depends on ffmpeg
+            stderr = exc.stderr.decode('utf-8', 'ignore') if exc.stderr else 'No error output'
+            logger.error("ffprobe failed", extra={"filepath": str(filepath), "stderr": stderr})
+            raise MetadataExtractionError(f"Failed to probe {filepath.name}") from exc
+        except (OSError, IOError) as exc:
+            logger.error("File access error during probe", extra={"filepath": str(filepath)})
+            raise MetadataExtractionError(f"Cannot access file: {filepath.name}") from exc
+        except ValueError as exc:
+            logger.error("Invalid probe output", extra={"filepath": str(filepath)})
+            raise MetadataExtractionError(f"Invalid media format: {filepath.name}") from exc
 
         fmt = data.get("format", {})
         duration = fmt.get("duration")
@@ -75,11 +83,16 @@ class MetadataExtractor:
             if frame_rate and frame_rate != "0/0":
                 try:
                     numerator, denominator = frame_rate.split("/")
-                    if int(denominator) != 0:
-                        fps = round(int(numerator) / int(denominator), 2)
+                    denom_int = int(denominator)
+                    if denom_int != 0:
+                        fps = round(int(numerator) / denom_int, 2)
                         frame_rate = str(fps)
-                except Exception:  # pragma: no cover - defensive
-                    pass
+                    else:
+                        logger.warning("Division by zero parsing frame rate", extra={"filepath": str(filepath), "raw": frame_rate})
+                        frame_rate = None
+                except (ValueError, TypeError, AttributeError) as exc:
+                    logger.warning("Failed to parse frame rate", extra={"filepath": str(filepath), "raw": frame_rate, "error": str(exc)})
+                    frame_rate = None
 
         return _ProbeResult(
             duration_seconds=duration_seconds,
