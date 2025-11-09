@@ -157,6 +157,7 @@ async def create_media(
     """Persist an uploaded media file and return its metadata."""
 
     destination: Path | None = None
+    metadata = None
     try:
         destination, _received, checksum, _mime = await _save_upload_securely(upload)
         metadata = await metadata_extractor.extract_metadata(destination)
@@ -184,6 +185,12 @@ async def create_media(
         db.rollback()
         if destination and destination.exists():
             destination.unlink(missing_ok=True)
+        if metadata and metadata.thumbnail_path:
+            try:
+                thumb_path = Path(metadata.thumbnail_path)
+                thumb_path.unlink(missing_ok=True)
+            except Exception:
+                pass
         raise
 
 

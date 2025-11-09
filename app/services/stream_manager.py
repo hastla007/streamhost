@@ -92,8 +92,10 @@ class StreamManager:
             except FileNotFoundError as exc:
                 session.status = "error"
                 session.last_error = f"Media file not found: {exc}"
-                db.flush()
-                db.rollback()
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
                 self._session_id = None
                 self._destination = None
                 self._encoder_name = "ffmpeg"
@@ -105,8 +107,10 @@ class StreamManager:
             except (OSError, PermissionError) as exc:
                 session.status = "error"
                 session.last_error = f"File access error: {exc}"
-                db.flush()
-                db.rollback()
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
                 self._session_id = None
                 self._destination = None
                 self._encoder_name = "ffmpeg"
@@ -117,8 +121,10 @@ class StreamManager:
             except StreamingError as exc:
                 session.status = "error"
                 session.last_error = str(exc)
-                db.flush()
-                db.rollback()
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
                 self._session_id = None
                 self._destination = None
                 self._encoder_name = "ffmpeg"
@@ -129,8 +135,10 @@ class StreamManager:
             except Exception as exc:
                 session.status = "error"
                 session.last_error = f"Unexpected error: {type(exc).__name__}"
-                db.flush()
-                db.rollback()
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
                 self._session_id = None
                 self._destination = None
                 self._encoder_name = "ffmpeg"
