@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ title|default('StreamHost') }} - StreamHost</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="branding">
+        <span class="logo">🎬</span>
+        <div>
+          <h1>StreamHost</h1>
+          <p class="tagline">24/7 streaming orchestration</p>
+        </div>
+      </div>
+      <nav class="primary-nav">
+        <a href="/" class="nav-link">Home</a>
+        <a href="/playlist" class="nav-link">Playlist</a>
+        <a href="/media" class="nav-link">Media Gallery</a>
+        <a href="/monitor" class="nav-link">Monitor</a>
+        <a href="/settings" class="nav-link">Settings</a>
+      </nav>
+    </header>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="app-footer">
+      <p>&copy; {{ current_year|default('2024') }} StreamHost. All rights reserved.</p>
+    </footer>
+
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>
