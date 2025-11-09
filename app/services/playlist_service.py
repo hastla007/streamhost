@@ -1,14 +1,22 @@
 """Playlist persistence helpers."""
 from __future__ import annotations
 
+import logging
+
+from datetime import datetime
+
 from fastapi import HTTPException, status
 from sqlalchemy import asc, func, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import MediaAsset, PlaylistEntry, PlaylistPositionCounter
 from app.schemas import PlaylistCreate, PlaylistGenerationRequest, PlaylistItem
 from app.services.playlist_scheduler import playlist_scheduler
+
+logger = logging.getLogger(__name__)
+
+MAX_POSITION_RETRIES = 5
 
 
 def list_playlist(db: Session, *, limit: int | None = None, offset: int = 0) -> list[PlaylistItem]:
@@ -45,31 +53,42 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
     if payload.media_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="media_id is required")
 
-    media = db.get(MediaAsset, payload.media_id)
-    if media is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
+    for attempt in range(MAX_POSITION_RETRIES):
+        media = db.get(MediaAsset, payload.media_id)
+        if media is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
 
-    try:
-        position = _reserve_next_position(db)
-        entry = PlaylistEntry(
-            media_id=media.id,
-            scheduled_start=payload.scheduled_start,
-            position=position,
-        )
-        db.add(entry)
-        db.flush()
-        db.commit()
-    except SQLAlchemyError:
-        db.rollback()
-        raise
+        try:
+            entry = _persist_playlist_entry(
+                db,
+                media=media,
+                scheduled_start=payload.scheduled_start,
+            )
+            return PlaylistItem(
+                id=entry.id,
+                media_id=media.id,
+                title=media.title,
+                genre=media.genre,
+                duration_seconds=media.duration_seconds,
+                scheduled_start=entry.scheduled_start,
+            )
+        except IntegrityError as exc:
+            db.rollback()
+            logger.warning(
+                "Detected playlist position race, retrying",  # pragma: no cover - logging only
+                extra={
+                    "attempt": attempt + 1,
+                    "media_id": payload.media_id,
+                    "error": str(exc),
+                },
+            )
+        except SQLAlchemyError:
+            db.rollback()
+            raise
 
-    return PlaylistItem(
-        id=entry.id,
-        media_id=media.id,
-        title=media.title,
-        genre=media.genre,
-        duration_seconds=media.duration_seconds,
-        scheduled_start=entry.scheduled_start,
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Unable to reserve playlist position after retries",
     )
 
 
@@ -95,35 +114,54 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
 
     created: list[PlaylistItem] = []
 
-    try:
-        for item in planned_items:
+    for item in planned_items:
+        entry: PlaylistEntry | None = None
+        media: MediaAsset | None = None
+        for attempt in range(MAX_POSITION_RETRIES):
             media = db.get(MediaAsset, item.media_id)
             if media is None:
-                continue
-            position = _reserve_next_position(db)
-            entry = PlaylistEntry(
-                media_id=media.id,
-                scheduled_start=item.scheduled_start,
-                position=position,
-            )
-            db.add(entry)
-            db.flush()
-
-            created.append(
-                PlaylistItem(
-                    id=entry.id,
-                    media_id=media.id,
-                    title=media.title,
-                    genre=media.genre,
-                    duration_seconds=media.duration_seconds,
-                    scheduled_start=entry.scheduled_start,
+                break
+            try:
+                entry = _persist_playlist_entry(
+                    db,
+                    media=media,
+                    scheduled_start=item.scheduled_start,
                 )
+                break
+            except IntegrityError as exc:
+                db.rollback()
+                logger.warning(
+                    "Detected playlist position race while generating playlist",  # pragma: no cover - logging only
+                    extra={
+                        "attempt": attempt + 1,
+                        "media_id": media.id,
+                        "strategy": request.strategy,
+                        "error": str(exc),
+                    },
+                )
+            except SQLAlchemyError:
+                db.rollback()
+                raise
+
+        if media is None:
+            continue
+
+        if entry is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Failed to generate playlist due to position contention",
             )
 
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
+        created.append(
+            PlaylistItem(
+                id=entry.id,
+                media_id=media.id,
+                title=media.title,
+                genre=media.genre,
+                duration_seconds=media.duration_seconds,
+                scheduled_start=entry.scheduled_start,
+            )
+        )
 
     return created
 
@@ -141,10 +179,31 @@ def _reserve_next_position(db: Session) -> int:
         counter = PlaylistPositionCounter(id=1, value=0)
         db.add(counter)
         db.flush()
+        logger.info("Initialised playlist position counter")
 
     counter.value += 1
     db.flush()
     return counter.value
+
+
+def _persist_playlist_entry(
+    db: Session,
+    *,
+    media: MediaAsset,
+    scheduled_start: datetime | None,
+) -> PlaylistEntry:
+    """Persist a playlist entry and commit the transaction."""
+
+    position = _reserve_next_position(db)
+    entry = PlaylistEntry(
+        media_id=media.id,
+        scheduled_start=scheduled_start,
+        position=position,
+    )
+    db.add(entry)
+    db.flush()
+    db.commit()
+    return entry
 
 
 def _serialize_entries(entries: list[PlaylistEntry]) -> list[PlaylistItem]:

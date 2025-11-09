@@ -311,6 +311,18 @@ rate limiting for all state-changing operations.
 - Telemetry from `-progress` parsing feeds the API and dashboard with up-to-date frame,
   bitrate, and speed metrics.
 
+#### Concurrency & Locking Guarantees
+
+- `LiveStreamManager` wraps all start/stop/status mutations behind an `asyncio.Lock`,
+  while `LiveStreamEngine.status_snapshot()` acquires the encoder lock before copying
+  process metrics so operators always see a consistent view of the pipeline.
+- Playlist inserts reserve monotonic positions through a dedicated counter table plus a
+  unique index on `playlist_entry.position`; the service logs and transparently retries
+  when contention occurs so concurrent API calls cannot produce duplicate queue slots.
+- Preview assets are rate limited and generated under a single lock-held critical
+  section which also cleans stale HLS segments, preventing concurrent restarts from
+  deleting files that an active encoder still needs.
+
 ### Intelligent Playlist Scheduler
 
 - `POST /api/v1/playlist/generate` uses the new scheduler to honor genre rotation,
