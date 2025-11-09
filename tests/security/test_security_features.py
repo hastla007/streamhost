@@ -1,11 +1,15 @@
+import asyncio
 import time
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
+from starlette.responses import Response
 
 from app.core import security
 from app.core.security import DistributedRateLimiter, RateLimiter, enforce_preview_rate_limit, generate_csrf_token, validate_csrf
+from app.core.middleware import RequestTimeoutMiddleware
 
 
 class MockRequest:
@@ -14,6 +18,7 @@ class MockRequest:
         self.state = SimpleNamespace(session={})
         self.session = self.state.session
         self.headers = {}
+        self.url = SimpleNamespace(path="/test")
 
 
 def test_csrf_token_expires(monkeypatch) -> None:
@@ -40,3 +45,23 @@ def test_preview_rate_limiter_enforces_limits(monkeypatch) -> None:
     enforce_preview_rate_limit(request)
     with pytest.raises(HTTPException):
         enforce_preview_rate_limit(request)
+
+
+@pytest.mark.anyio
+async def test_request_timeout_middleware_triggers_timeout() -> None:
+    class DummyApp:
+        async def __call__(self, scope, receive, send):  # pragma: no cover - required by Starlette
+            raise NotImplementedError
+
+    async def call_next(_: Request) -> Response:
+        await asyncio.sleep(0.05)
+        return Response("ok")
+
+    middleware = RequestTimeoutMiddleware(DummyApp(), timeout=0.01)
+    scope = {"type": "http", "method": "GET", "path": "/timeout", "headers": []}
+    request = Request(scope=scope)
+
+    with pytest.raises(HTTPException) as exc:
+        await middleware.dispatch(request, call_next)
+
+    assert exc.value.status_code == 504

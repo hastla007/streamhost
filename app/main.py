@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -15,7 +16,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api import router as api_router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
-from app.core.security import generate_csrf_token, redis_client
+from app.core.middleware import RequestTimeoutMiddleware
+from app.core.security import CSRF_EXPIRY_KEY, generate_csrf_token, redis_client
 from app.core.sessions import ServerSessionMiddleware, periodic_session_cleanup
 from app.core.types import ASGICallNext
 from app.db.init_db import init_database
@@ -51,6 +53,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         allow_credentials=True,
     )
+    app.add_middleware(RequestTimeoutMiddleware, timeout=settings.request_timeout_seconds)
 
     static_dir = Path(__file__).parent / "web" / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -63,8 +66,19 @@ def create_app() -> FastAPI:
         """Ensure each session has a CSRF token."""
 
         session = getattr(request.state, "session", None)
-        token = session.get("_csrf_token") if session else request.session.get("_csrf_token")
-        if token is None:
+        container = session if session is not None else request.session
+        token = container.get("_csrf_token") if container is not None else None
+        expiry_raw = container.get(CSRF_EXPIRY_KEY) if container is not None else None
+        expired = False
+        if expiry_raw is not None:
+            try:
+                expired = time.time() > float(expiry_raw)
+            except (TypeError, ValueError):
+                expired = True
+        if token is None or expired:
+            if container is not None:
+                container.pop("_csrf_token", None)
+                container.pop(CSRF_EXPIRY_KEY, None)
             generate_csrf_token(request)
         response = await call_next(request)
         return response

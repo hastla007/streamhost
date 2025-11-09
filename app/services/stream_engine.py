@@ -17,6 +17,7 @@ from app.core.retry import BackoffStrategy, RetryCalculator, RetryConfig
 from app.core.types import StreamSnapshot
 from app.core.exceptions import StreamingError
 from app.schemas import StreamMetrics
+from app.utils import ObservedLock
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class LiveStreamManager:
     """Manage FFmpeg streaming processes and parse telemetry."""
 
     def __init__(self) -> None:
-        self._lock = asyncio.Lock()
+        self._lock = ObservedLock("stream_engine_lock")
         self._process: Optional[asyncio.subprocess.Process] = None
         self._progress_task: Optional[asyncio.Task[None]] = None
         self._watchdog_task: Optional[asyncio.Task[None]] = None

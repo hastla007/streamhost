@@ -13,11 +13,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.core.database import check_pool_health, get_db, get_db_context
 from app.core.security import enforce_preview_rate_limit, enforce_rate_limit, redis_client
 from app.schemas import DEFAULT_ERROR_RESPONSES, HealthResponse, StreamStatus
 from app.services.stream_engine import PREVIEW_DIR
 from app.services.stream_manager import stream_manager
+from app.utils import collect_lock_warnings
 
 router = APIRouter(dependencies=[Depends(enforce_rate_limit)])
 
@@ -149,6 +151,12 @@ async def health_check() -> HealthResponse:
     pool_ok, pool_message = await asyncio.to_thread(check_pool_health)
     if not pool_ok:
         issues.append(f"Database pool: {pool_message}")
+
+    lock_warnings = collect_lock_warnings(
+        wait_threshold=settings.lock_wait_warning_seconds,
+        hold_threshold=settings.lock_hold_warning_seconds,
+    )
+    issues.extend(f"Lock contention: {warning}" for warning in lock_warnings)
 
     if not issues:
         status_text = "healthy"

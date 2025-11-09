@@ -104,6 +104,9 @@ class RateLimiter:
 redis_client: Optional[Redis] = None
 _redis_lock = threading.Lock()
 
+CSRF_SESSION_KEY = _CSRF_SESSION_KEY
+CSRF_EXPIRY_KEY = _CSRF_EXPIRY_KEY
+
 
 def _init_redis_client() -> Optional[Redis]:  # pragma: no cover - external dependency
     try:

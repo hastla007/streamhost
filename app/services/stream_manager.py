@@ -1,7 +1,6 @@
 """Runtime streaming management via FFmpeg."""
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +16,7 @@ from app.core.exceptions import StreamingError
 from app.models import MediaAsset, PlaylistEntry, StreamSession
 from app.schemas import StreamMetrics, StreamStatus
 from app.services.stream_engine import StreamLaunchPlan, live_stream_engine
+from app.utils import ObservedLock
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class StreamManager:
     """Controls the lifetime of the ffmpeg streaming process."""
 
     def __init__(self) -> None:
-        self._lock = asyncio.Lock()
+        self._lock = ObservedLock("stream_manager_lock")
         self._session_id: Optional[int] = None
         self._destination: Optional[str] = None
         self._encoder_name: str = "ffmpeg"
