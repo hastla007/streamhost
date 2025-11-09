@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import subprocess
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -185,7 +186,16 @@ class CleanupService:
                 continue
             try:
                 def _directory_size() -> int:
-                    return sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
+                    try:
+                        result = subprocess.run(
+                            ["du", "-sb", str(directory)],
+                            capture_output=True,
+                            check=True,
+                            text=True,
+                        )
+                        return int(result.stdout.split()[0])
+                    except (FileNotFoundError, subprocess.CalledProcessError, ValueError, IndexError):
+                        return sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
 
                 total_size = await asyncio.to_thread(_directory_size)
                 size_gb = total_size / 1024 / 1024 / 1024

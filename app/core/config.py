@@ -134,6 +134,17 @@ class Settings(BaseModel):
             raise ValueError("ALERT_EMAIL must be a valid email address")
         return value
 
+    @field_validator("admin_default_password")
+    @classmethod
+    def validate_admin_password(cls, value: str) -> str:
+        """Ensure the seeded admin password is rotated from defaults."""
+
+        if value in {"changeme", "change-me", "admin", "password"}:
+            raise ValueError("ADMIN_DEFAULT_PASSWORD must be changed from the default value")
+        if len(value) < 12:
+            raise ValueError("ADMIN_DEFAULT_PASSWORD must be at least 12 characters long")
+        return value
+
     @model_validator(mode="after")
     def ensure_database_url(self) -> "Settings":
         """Construct a PostgreSQL URL when one is not explicitly provided."""

@@ -157,7 +157,7 @@ class LiveStreamManager:
         """Return the most recent telemetry snapshot."""
 
         async with self._lock:
-            return self._metrics
+            return self._metrics.model_copy(deep=True)
 
     async def is_running(self) -> bool:
         """Return whether FFmpeg process is currently active."""

@@ -90,7 +90,7 @@ def _resolve_preview_asset(name: str) -> Path:
 @router.get(
     "/preview.m3u8",
     responses=DEFAULT_ERROR_RESPONSES,
-    dependencies=[Depends(enforce_preview_rate_limit)],
+    dependencies=[Depends(enforce_preview_rate_limit), Depends(get_current_user)],
 )
 async def preview_master() -> FileResponse:
     """Return the master HLS playlist for local monitoring."""
@@ -102,7 +102,7 @@ async def preview_master() -> FileResponse:
 @router.get(
     "/preview/{asset:path}",
     responses=DEFAULT_ERROR_RESPONSES,
-    dependencies=[Depends(enforce_preview_rate_limit)],
+    dependencies=[Depends(enforce_preview_rate_limit), Depends(get_current_user)],
 )
 async def preview_asset(asset: str) -> FileResponse:
     """Serve generated HLS playlists and segments."""
@@ -112,7 +112,12 @@ async def preview_asset(asset: str) -> FileResponse:
     return FileResponse(path, media_type=media_type)
 
 
-@router.get("/health", response_model=HealthResponse, responses=DEFAULT_ERROR_RESPONSES)
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    responses=DEFAULT_ERROR_RESPONSES,
+    dependencies=[Depends(get_current_user)],
+)
 async def health_check() -> HealthResponse:
     """Perform dependency checks for readiness probes."""
 

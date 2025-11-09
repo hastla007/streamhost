@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TableNameMixin, TimestampMixin
@@ -46,7 +46,9 @@ class PlaylistEntry(TableNameMixin, TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     media_id: Mapped[int] = mapped_column(ForeignKey("media_asset.id", ondelete="CASCADE"), nullable=False)
-    scheduled_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    scheduled_start: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     position: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, index=True, unique=True
     )
@@ -56,6 +58,8 @@ class PlaylistEntry(TableNameMixin, TimestampMixin, Base):
 
 class SystemSetting(TableNameMixin, TimestampMixin, Base):
     """Mutable system configuration stored in the database."""
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_system_setting_singleton"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stream_resolution: Mapped[str] = mapped_column(String(32), nullable=False)

@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 os.environ.setdefault("SECRET_KEY", "test-secret-key-please-change-1234567890")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-key-please-change-1234567890")
 os.environ.setdefault("POSTGRES_PASSWORD", "test-password")
+os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "test-admin-password-123")
 
 from app.db.base import Base
 
