@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% set title = "Settings" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h2>Settings</h2>
+    <p class="subtitle">Configure stream, integrations, and notifications.</p>
+  </div>
+  <button class="btn primary" form="settings-form" type="submit">Save Changes</button>
+</section>
+
+<form id="settings-form" method="post" action="/settings">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+  <section class="settings-grid">
+    <div class="card">
+      <h3>Stream Parameters</h3>
+      <label>
+        Resolution
+        <input type="text" name="stream_resolution" value="{{ settings.stream_resolution }}" required />
+      </label>
+      <label>
+        Bitrate (kbps)
+        <input type="number" name="stream_bitrate" value="{{ settings.stream_bitrate }}" min="1" required />
+      </label>
+      <label>
+        FPS
+        <input type="number" name="stream_fps" value="{{ settings.stream_fps }}" min="1" max="144" required />
+      </label>
+      <label>
+        Hardware Acceleration
+        <input type="text" name="hardware_accel" value="{{ settings.hardware_accel }}" required />
+      </label>
+    </div>
+
+    <div class="card">
+      <h3>Contact</h3>
+      <label>
+        Alert Email
+        <input type="email" name="contact_email" value="{{ settings.contact_email }}" required />
+      </label>
+      <p class="hint">Used for system notifications and escalation policies.</p>
+    </div>
+
+    <div class="card span-2">
+      <h3>Security</h3>
+      <p class="subtitle">CSRF tokens and rate limiting are enforced for all form submissions.</p>
+      <p class="hint">Session-bound CSRF token: <code>{{ csrf_token }}</code></p>
+    </div>
+  </section>
+</form>
+{% endblock %}
