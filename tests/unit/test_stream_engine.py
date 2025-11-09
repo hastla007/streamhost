@@ -1,11 +1,11 @@
+import asyncio
 from datetime import datetime, timezone
-from types import SimpleNamespace
-
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from app.services.stream_engine import LiveStreamManager
+from app.services.stream_engine import LiveStreamManager, StreamLaunchPlan
 
 
 @pytest.mark.anyio("asyncio")
@@ -31,6 +31,32 @@ def test_create_concat_file_escapes_quotes(tmp_path) -> None:
     finally:
         manager._cleanup_concat()
 
+
+@pytest.mark.anyio("asyncio")
+async def test_handle_restart_runs_once(monkeypatch) -> None:
+    manager = LiveStreamManager()
+    manager._plan = StreamLaunchPlan(
+        playlist_id=1,
+        media_files=[Path(__file__)],
+        destination="rtmp://example/stream",
+        profiles=[("1920x1080", 4000)],
+        encoder="libx264",
+        preset="fast",
+        fps=30,
+    )
+
+    calls: list[int] = []
+
+    async def fake_restart_loop() -> None:
+        calls.append(1)
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(manager, "_restart_loop", fake_restart_loop)
+
+    await asyncio.gather(manager._handle_restart(), manager._handle_restart())
+
+    assert len(calls) == 1
+    assert manager._is_restarting is False
 
 def test_create_concat_file_windows_paths(monkeypatch) -> None:
     manager = LiveStreamManager()

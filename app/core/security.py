@@ -22,7 +22,7 @@ _CSRF_EXPIRY_KEY = "_csrf_token_expiry"
 _CSRF_PREVIOUS_KEY = "_csrf_token_previous"
 
 
-def _get_session_container(request: Request):
+def get_session_container(request: Request):
     """Return the session container for the request."""
 
     if hasattr(request.state, "session"):
@@ -34,7 +34,7 @@ def generate_csrf_token(request: Request) -> str:
     """Create and persist a CSRF token in the session."""
 
     token = secrets.token_urlsafe(32)
-    session = _get_session_container(request)
+    session = get_session_container(request)
     session[_CSRF_SESSION_KEY] = token
     session[_CSRF_EXPIRY_KEY] = time.time() + settings.csrf_token_ttl_seconds
     return token
@@ -43,7 +43,7 @@ def generate_csrf_token(request: Request) -> str:
 def validate_csrf(request: Request, token: str | None) -> None:
     """Validate the supplied CSRF token against the session."""
 
-    session = _get_session_container(request)
+    session = get_session_container(request)
     expected = session.get(_CSRF_SESSION_KEY)
     previous = session.get(_CSRF_PREVIOUS_KEY)
     expiry = session.get(_CSRF_EXPIRY_KEY)

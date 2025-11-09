@@ -21,6 +21,7 @@ from app.core.security import (
     CSRF_EXPIRY_KEY,
     CSRF_PREVIOUS_KEY,
     generate_csrf_token,
+    get_session_container,
     redis_client,
 )
 from app.core.sessions import ServerSessionMiddleware, periodic_session_cleanup
@@ -70,8 +71,7 @@ def create_app() -> FastAPI:
     async def add_csrf_token(request: Request, call_next: ASGICallNext) -> Response:
         """Ensure each session has a CSRF token."""
 
-        session = getattr(request.state, "session", None)
-        container = session if session is not None else request.session
+        container = get_session_container(request)
         token = container.get("_csrf_token") if container is not None else None
         expiry_raw = container.get(CSRF_EXPIRY_KEY) if container is not None else None
         expired = False

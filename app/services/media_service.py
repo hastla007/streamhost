@@ -107,14 +107,25 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
         temp_destination.unlink(missing_ok=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Detected MIME type {detected_mime} is not supported")
 
-    try:
-        temp_destination.replace(destination)
-    except FileExistsError as exc:
-        temp_destination.unlink(missing_ok=True)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A file with this name already exists") from exc
-    except Exception:
-        temp_destination.unlink(missing_ok=True)
-        raise
+    rename_attempts = 0
+    while True:
+        try:
+            temp_destination.replace(destination)
+            break
+        except FileExistsError:
+            if rename_attempts >= 5:
+                temp_destination.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A file with this name already exists",
+                )
+            rename_attempts += 1
+            unique_id = uuid.uuid4().hex[:8]
+            destination = MEDIA_ROOT / f"{timestamp}_{unique_id}_{safe_name}"
+            continue
+        except Exception:
+            temp_destination.unlink(missing_ok=True)
+            raise
 
     checksum = hasher.hexdigest()
     return destination, received, checksum, detected_mime
@@ -160,6 +171,7 @@ async def create_media(
 
     destination: Path | None = None
     metadata = None
+    asset_committed = False
     try:
         destination, _received, checksum, _mime = await _save_upload_securely(upload)
         metadata = await metadata_extractor.extract_metadata(destination)
@@ -181,13 +193,19 @@ async def create_media(
         db.add(asset)
         db.flush()
         db.commit()
+        asset_committed = True
 
         return _to_media_item(asset)
     except Exception:
-        db.rollback()
-        if destination and destination.exists():
+        try:
+            db.rollback()
+        except Exception as exc:
+            logger.warning("Failed to rollback media transaction", extra={"error": str(exc)})
+        raise
+    finally:
+        if not asset_committed and destination and destination.exists():
             destination.unlink(missing_ok=True)
-        if metadata and metadata.thumbnail_path:
+        if not asset_committed and metadata and metadata.thumbnail_path:
             try:
                 thumb_path = Path(metadata.thumbnail_path)
                 thumb_path.unlink(missing_ok=True)
@@ -196,7 +214,6 @@ async def create_media(
                     "Failed to remove thumbnail during rollback",
                     extra={"thumbnail": metadata.thumbnail_path, "error": str(exc)},
                 )
-        raise
 
 
 def _to_media_item(item: MediaAsset) -> MediaItem:

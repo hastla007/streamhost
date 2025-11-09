@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
@@ -49,8 +50,8 @@ class Settings(BaseModel):
     youtube_rtmp_url: Optional[str] = Field(None, validation_alias="YOUTUBE_RTMP_URL")
 
     stream_resolution: str = Field("1920x1080", validation_alias="STREAM_RESOLUTION")
-    stream_bitrate: int = Field(4000, validation_alias="STREAM_BITRATE")
-    stream_fps: int = Field(30, validation_alias="STREAM_FPS")
+    stream_bitrate: int = Field(4000, validation_alias="STREAM_BITRATE", gt=0)
+    stream_fps: int = Field(30, validation_alias="STREAM_FPS", gt=0)
     stream_hardware_accel: str = Field("auto", validation_alias="STREAM_HARDWARE_ACCEL")
 
     alert_email: str = Field("admin@example.com", validation_alias="ALERT_EMAIL")
@@ -138,6 +139,51 @@ class Settings(BaseModel):
             validate_email(value, allow_smtputf8=False)
         except EmailNotValidError as exc:
             raise ValueError("ALERT_EMAIL must be a valid email address") from exc
+        return value
+
+    @field_validator("stream_resolution")
+    @classmethod
+    def validate_stream_resolution(cls, value: str) -> str:
+        """Ensure stream resolution follows the WIDTHxHEIGHT pattern."""
+
+        pattern = re.compile(r"^(\d{2,5})x(\d{2,5})$")
+        match = pattern.match(value.lower())
+        if not match:
+            raise ValueError("STREAM_RESOLUTION must be formatted as WIDTHxHEIGHT (e.g. 1920x1080)")
+
+        width, height = (int(match.group(1)), int(match.group(2)))
+        if width < 320 or height < 240:
+            raise ValueError("STREAM_RESOLUTION must be at least 320x240")
+        if width > 7680 or height > 4320:
+            raise ValueError("STREAM_RESOLUTION must not exceed 7680x4320")
+
+        return f"{width}x{height}"
+
+    @field_validator("stream_bitrate")
+    @classmethod
+    def validate_stream_bitrate(cls, value: int) -> int:
+        """Ensure bitrate is within a sensible range of kilobits per second."""
+
+        if value < 250:
+            raise ValueError("STREAM_BITRATE must be at least 250 kbps")
+        if value > 100_000:
+            raise ValueError("STREAM_BITRATE must be less than or equal to 100000 kbps")
+        return value
+
+    @field_validator("stream_fps")
+    @classmethod
+    def validate_stream_fps(cls, value: int) -> int:
+        """Ensure the configured frame rate is within expected bounds."""
+
+        if value < 1 or value > 240:
+            raise ValueError("STREAM_FPS must be between 1 and 240")
+        return value
+
+    @field_validator("stream_preview_segment_seconds")
+    @classmethod
+    def validate_preview_segment_seconds(cls, value: int) -> int:
+        if value < 1 or value > 30:
+            raise ValueError("STREAM_PREVIEW_SEGMENT_SECONDS must be between 1 and 30")
         return value
 
     @field_validator("admin_default_password")

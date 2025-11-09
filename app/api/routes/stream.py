@@ -75,16 +75,22 @@ def _resolve_preview_asset(name: str) -> Path:
     if any(char in decoded for char in ["/", "\\", "\x00"]) or ".." in decoded:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid asset name")
 
-    candidate = (PREVIEW_DIR / decoded).resolve()
+    candidate = PREVIEW_DIR / decoded
+    base_dir = PREVIEW_DIR.resolve()
 
     try:
-        candidate.relative_to(PREVIEW_DIR)
+        resolved = candidate.resolve(strict=True)
+    except FileNotFoundError:
+        resolved = candidate.resolve(strict=False)
+
+    try:
+        resolved.relative_to(base_dir)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview asset not found")
 
-    if not candidate.exists():
+    if not resolved.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview asset not found")
-    return candidate
+    return resolved
 
 
 @router.get(

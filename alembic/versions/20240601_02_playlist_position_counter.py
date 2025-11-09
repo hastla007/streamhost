@@ -27,13 +27,13 @@ def upgrade() -> None:
             server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
-        sa.Column("value", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column("value", sa.BigInteger(), nullable=False, server_default=sa.text("0")),
     )
 
     counter_table = sa.table(
         "playlist_position_counter",
         sa.column("id", sa.Integer()),
-        sa.column("value", sa.Integer()),
+        sa.column("value", sa.BigInteger()),
     )
     op.bulk_insert(counter_table, [{"id": 1, "value": 0}])
 

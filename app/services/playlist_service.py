@@ -84,9 +84,14 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
                     "error": str(exc),
                 },
             )
-        except SQLAlchemyError:
+        except SQLAlchemyError as exc:
             db.rollback()
-            raise
+            if attempt == MAX_POSITION_RETRIES - 1:
+                raise
+            logger.warning(
+                "Database error while reserving playlist position; retrying",  # pragma: no cover - logging only
+                extra={"attempt": attempt + 1, "media_id": payload.media_id, "error": str(exc)},
+            )
 
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -146,9 +151,19 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
                         "error": str(exc),
                     },
                 )
-            except SQLAlchemyError:
+            except SQLAlchemyError as exc:
                 db.rollback()
-                raise
+                if attempt == MAX_POSITION_RETRIES - 1:
+                    raise
+                logger.warning(
+                    "Database error while generating playlist; retrying",  # pragma: no cover - logging only
+                    extra={
+                        "attempt": attempt + 1,
+                        "media_id": media.id,
+                        "strategy": request.strategy,
+                        "error": str(exc),
+                    },
+                )
 
         if entry is None:
             logger.error(
@@ -180,12 +195,20 @@ def _reserve_next_position(db: Session) -> int:
 
     dialect_name = getattr(getattr(db.bind, "dialect", None), "name", "")
     stmt = select(PlaylistPositionCounter).limit(1)
-    if dialect_name != "sqlite":
-        stmt = stmt.with_for_update()
 
-    counter = db.execute(stmt).scalars().first()
+    counter = None
+    if dialect_name == "sqlite":
+        try:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        except Exception:
+            # Transaction already active; SQLite implicitly serialises writes.
+            pass
+        counter = db.execute(stmt).scalars().first()
+    else:
+        counter = db.execute(stmt.with_for_update()).scalars().first()
+
     if counter is None:
-        counter = PlaylistPositionCounter(id=1, value=0)
+        counter = PlaylistPositionCounter(value=0)
         db.add(counter)
         db.flush()
         logger.info("Initialised playlist position counter")

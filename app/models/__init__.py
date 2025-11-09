@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TableNameMixin, TimestampMixin
@@ -84,4 +84,4 @@ class PlaylistPositionCounter(TableNameMixin, TimestampMixin, Base):
     """Tracks the next playlist position in a concurrency-safe manner."""
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    value: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)

@@ -1,5 +1,7 @@
 import asyncio
+import importlib.util
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -8,8 +10,14 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core import security
-from app.core.security import DistributedRateLimiter, RateLimiter, enforce_preview_rate_limit, generate_csrf_token, validate_csrf
 from app.core.middleware import RequestTimeoutMiddleware
+from app.core.security import (
+    DistributedRateLimiter,
+    RateLimiter,
+    enforce_preview_rate_limit,
+    generate_csrf_token,
+    validate_csrf,
+)
 
 
 class MockRequest:
@@ -45,6 +53,29 @@ def test_preview_rate_limiter_enforces_limits(monkeypatch) -> None:
     enforce_preview_rate_limit(request)
     with pytest.raises(HTTPException):
         enforce_preview_rate_limit(request)
+
+
+def test_preview_path_rejects_encoded_traversal(monkeypatch, tmp_path) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "test_stream_routes", Path("app/api/routes/stream.py")
+    )
+    assert spec and spec.loader
+    stream_routes = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stream_routes)
+
+    preview_dir = tmp_path / "preview"
+    preview_dir.mkdir()
+    target = preview_dir / "master.m3u8"
+    target.write_text("#EXTM3U")
+
+    monkeypatch.setattr(stream_routes, "PREVIEW_DIR", preview_dir, raising=False)
+    monkeypatch.setattr("app.services.stream_engine.PREVIEW_DIR", preview_dir, raising=False)
+
+    resolved = stream_routes._resolve_preview_asset("master.m3u8")
+    assert resolved == target
+
+    with pytest.raises(HTTPException):
+        stream_routes._resolve_preview_asset("..%2f..%2fetc/passwd")
 
 
 @pytest.mark.anyio

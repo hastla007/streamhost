@@ -7,9 +7,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.db.init_db import ensure_playlist_counter
-from app.models import MediaAsset, PlaylistEntry
+from app.models import MediaAsset, PlaylistEntry, PlaylistPositionCounter
 from app.schemas import PlaylistCreate
-from app.services.playlist_service import add_playlist_item
+from app.services import playlist_service
 
 
 @pytest.mark.anyio("asyncio")
@@ -37,7 +37,7 @@ async def test_concurrent_playlist_additions(tmp_path) -> None:
     def worker() -> None:
         with Session() as session:
             payload = PlaylistCreate(media_id=media_id)
-            add_playlist_item(session, payload)
+            playlist_service.add_playlist_item(session, payload)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
         futures = [executor.submit(worker) for _ in range(12)]
@@ -55,3 +55,12 @@ async def test_concurrent_playlist_additions(tmp_path) -> None:
 
     assert positions == sorted(set(positions))
     assert positions == list(range(1, len(positions) + 1))
+
+
+def test_playlist_counter_handles_large_values(in_memory_db) -> None:
+    counter = PlaylistPositionCounter(value=2**63 - 2)
+    in_memory_db.add(counter)
+    in_memory_db.commit()
+
+    next_value = playlist_service._reserve_next_position(in_memory_db)
+    assert next_value == 2**63 - 1

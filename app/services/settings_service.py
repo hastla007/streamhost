@@ -33,7 +33,15 @@ def update_settings(db: Session, payload: SystemSettings) -> SystemSettings:
                 setattr(settings_row, key, value)
         db.flush()
         db.commit()
+        db.refresh(settings_row)
     except Exception:
         db.rollback()
         raise
-    return payload
+
+    return SystemSettings(
+        stream_resolution=settings_row.stream_resolution,
+        stream_bitrate=settings_row.stream_bitrate,
+        stream_fps=settings_row.stream_fps,
+        hardware_accel=settings_row.hardware_accel,
+        contact_email=settings_row.contact_email,
+    )

@@ -33,7 +33,6 @@ class RetryCalculator:
 
     def __init__(self, config: Optional[RetryConfig] = None) -> None:
         self.config = config or RetryConfig()
-        self._fibonacci_cache = [1, 1]
 
     def calculate_delay(self, attempt: int) -> float:
         """Return the delay for a given attempt (1-indexed)."""
@@ -61,9 +60,13 @@ class RetryCalculator:
         return delay
 
     def _get_fibonacci(self, n: int) -> int:
-        while len(self._fibonacci_cache) < n:
-            self._fibonacci_cache.append(self._fibonacci_cache[-1] + self._fibonacci_cache[-2])
-        return self._fibonacci_cache[n - 1]
+        if n <= 2:
+            return 1
+
+        a, b = 1, 1
+        for _ in range(2, n):
+            a, b = b, a + b
+        return b
 
     async def sleep_with_backoff(self, attempt: int) -> None:
         """Sleep for the computed delay."""
