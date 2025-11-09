@@ -104,8 +104,16 @@ class StreamManager:
         if running and started_at:
             uptime = int((datetime.now(timezone.utc) - started_at).total_seconds())
 
+        status_text = "offline"
+        if running:
+            status_text = "online"
+        elif last_error:
+            status_text = "error"
+        elif playlist_id is not None:
+            status_text = "starting"
+
         return StreamStatus(
-            status="online" if running else ("error" if last_error else "offline"),
+            status=status_text,
             uptime_seconds=uptime,
             encoder=self._encoder_name,
             target=self._destination,

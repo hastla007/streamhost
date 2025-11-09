@@ -35,9 +35,10 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*" if settings.debug else "https://localhost"],
+        allow_origins=settings.cors_origins,
         allow_methods=["*"],
-        allow_headers=["*"]
+        allow_headers=["*"],
+        allow_credentials=True,
     )
 
     static_dir = Path(__file__).parent / "web" / "static"

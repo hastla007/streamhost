@@ -1,8 +1,10 @@
 """Logging configuration for StreamHost."""
 from __future__ import annotations
 
+import copy
 import logging.config
-from typing import Dict, Any
+from pathlib import Path
+from typing import Any, Dict
 
 
 LOGGING_CONFIG: Dict[str, Any] = {
@@ -29,4 +31,19 @@ LOGGING_CONFIG: Dict[str, Any] = {
 def configure_logging() -> None:
     """Apply logging configuration."""
 
-    logging.config.dictConfig(LOGGING_CONFIG)
+    from app.core.config import settings
+
+    config = copy.deepcopy(LOGGING_CONFIG)
+    log_dir = Path(settings.log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    config.setdefault("handlers", {})["file"] = {
+        "class": "logging.handlers.RotatingFileHandler",
+        "formatter": "standard",
+        "filename": str(log_dir / "streamhost.log"),
+        "maxBytes": settings.log_max_bytes,
+        "backupCount": settings.log_backup_count,
+    }
+    config.setdefault("root", {}).setdefault("handlers", ["console"]).append("file")
+
+    logging.config.dictConfig(config)

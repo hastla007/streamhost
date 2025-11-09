@@ -14,14 +14,19 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.database import get_db, get_db_context
 from app.core.security import csrf_protect, enforce_rate_limit, redis_client
-from app.schemas import HealthResponse, StreamStatus
+from app.schemas import DEFAULT_ERROR_RESPONSES, HealthResponse, StreamStatus
 from app.services.stream_engine import PREVIEW_DIR
 from app.services.stream_manager import stream_manager
 
 router = APIRouter(dependencies=[Depends(enforce_rate_limit)])
 
 
-@router.get("/status", response_model=StreamStatus, dependencies=[Depends(get_current_user)])
+@router.get(
+    "/status",
+    response_model=StreamStatus,
+    dependencies=[Depends(get_current_user)],
+    responses=DEFAULT_ERROR_RESPONSES,
+)
 async def get_stream_status() -> StreamStatus:
     """Return the latest stream metrics."""
 
@@ -33,6 +38,7 @@ async def get_stream_status() -> StreamStatus:
     response_model=StreamStatus,
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(csrf_protect), Depends(get_current_user)],
+    responses=DEFAULT_ERROR_RESPONSES,
 )
 async def start_stream(media_id: int, db: Session = Depends(get_db)) -> StreamStatus:
     """Start streaming a media item to the configured RTMP destination."""
@@ -44,6 +50,7 @@ async def start_stream(media_id: int, db: Session = Depends(get_db)) -> StreamSt
     "/stop",
     status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(csrf_protect), Depends(get_current_user)],
+    responses=DEFAULT_ERROR_RESPONSES,
 )
 async def stop_stream(db: Session = Depends(get_db)) -> None:
     """Stop the running stream if one exists."""
@@ -60,7 +67,7 @@ def _resolve_preview_asset(name: str) -> Path:
     return candidate
 
 
-@router.get("/preview.m3u8")
+@router.get("/preview.m3u8", responses=DEFAULT_ERROR_RESPONSES)
 async def preview_master() -> FileResponse:
     """Return the master HLS playlist for local monitoring."""
 
@@ -68,7 +75,7 @@ async def preview_master() -> FileResponse:
     return FileResponse(path, media_type="application/vnd.apple.mpegurl")
 
 
-@router.get("/preview/{asset:path}")
+@router.get("/preview/{asset:path}", responses=DEFAULT_ERROR_RESPONSES)
 async def preview_asset(asset: str) -> FileResponse:
     """Serve generated HLS playlists and segments."""
 
@@ -77,7 +84,7 @@ async def preview_asset(asset: str) -> FileResponse:
     return FileResponse(path, media_type=media_type)
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get("/health", response_model=HealthResponse, responses=DEFAULT_ERROR_RESPONSES)
 async def health_check() -> HealthResponse:
     """Perform dependency checks for readiness probes."""
 

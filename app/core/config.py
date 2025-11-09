@@ -31,6 +31,15 @@ class Settings(BaseModel):
 
     redis_url: str = Field("redis://localhost:6379/0", validation_alias="REDIS_URL")
 
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://localhost:3000",
+        ],
+        validation_alias="CORS_ORIGINS",
+    )
+
     youtube_stream_key: Optional[str] = Field(None, validation_alias="YOUTUBE_STREAM_KEY")
     youtube_rtmp_url: Optional[str] = Field(None, validation_alias="YOUTUBE_RTMP_URL")
 
@@ -50,11 +59,30 @@ class Settings(BaseModel):
 
     rate_limit_requests: int = Field(60, validation_alias="RATE_LIMIT_REQUESTS")
     rate_limit_window: int = Field(60, validation_alias="RATE_LIMIT_WINDOW")
+    rate_limit_max_keys: int = Field(10_000, validation_alias="RATE_LIMIT_MAX_KEYS")
     max_upload_mb: int = Field(512, validation_alias="MAX_UPLOAD_MB")
     media_root: str = Field(str(BASE_DIR / "data" / "movies"), validation_alias="MOVIES_DIR")
+    log_dir: str = Field(str(BASE_DIR / "data" / "logs"), validation_alias="LOGS_DIR")
+    log_max_bytes: int = Field(10 * 1024 * 1024, validation_alias="LOG_MAX_BYTES")
+    log_backup_count: int = Field(5, validation_alias="LOG_BACKUP_COUNT")
+
+    stream_restart_base_delay: int = Field(5, validation_alias="STREAM_RESTART_BASE_DELAY")
+    stream_restart_max_delay: int = Field(15, validation_alias="STREAM_RESTART_MAX_DELAY")
+    stream_restart_max_attempts: int = Field(3, validation_alias="STREAM_RESTART_MAX_ATTEMPTS")
+    stream_preview_segment_seconds: int = Field(4, validation_alias="STREAM_PREVIEW_SEGMENT_SECONDS")
 
     class Config:
         populate_by_name = True
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: Any) -> list[str]:  # type: ignore[override]
+        if isinstance(value, str):
+            parts = [origin.strip() for origin in value.split(",")]
+            return [origin for origin in parts if origin]
+        if value is None:
+            return []
+        return list(value)
 
     @field_validator("secret_key")
     @classmethod

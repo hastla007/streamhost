@@ -46,4 +46,15 @@
   </article>
   {% endfor %}
 </section>
+<div class="pagination-bar">
+  <span>Page {{ media_pagination.page }} of {{ media_pagination.pages }} • {{ media_pagination.total }} items</span>
+  <div class="actions">
+    {% if media_pagination.page > 1 %}
+    <a class="btn ghost" href="{{ request.url.path }}?page={{ media_pagination.page - 1 }}&page_size={{ media_pagination.page_size }}">Previous</a>
+    {% endif %}
+    {% if media_pagination.page < media_pagination.pages %}
+    <a class="btn ghost" href="{{ request.url.path }}?page={{ media_pagination.page + 1 }}&page_size={{ media_pagination.page_size }}">Next</a>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

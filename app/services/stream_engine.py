@@ -152,12 +152,14 @@ class LiveStreamManager:
     async def _handle_restart(self) -> None:
         assert self._plan is not None
         self._restart_attempts += 1
-        if self._restart_attempts > 3:
+        if self._restart_attempts > settings.stream_restart_max_attempts:
             logger.critical("Exceeded FFmpeg restart attempts")
             await self.stop_stream()
             return
 
-        await asyncio.sleep(min(5 * self._restart_attempts, 15))
+        base_delay = settings.stream_restart_base_delay
+        max_delay = settings.stream_restart_max_delay
+        await asyncio.sleep(min(base_delay * self._restart_attempts, max_delay))
         logger.info("Restarting FFmpeg", extra={"attempt": self._restart_attempts})
         self._cleanup_concat()
         await self._launch_process()
@@ -288,7 +290,7 @@ class LiveStreamManager:
             "-f",
             "hls",
             "-hls_time",
-            "4",
+            str(settings.stream_preview_segment_seconds),
             "-hls_playlist_type",
             "event",
             "-hls_flags",

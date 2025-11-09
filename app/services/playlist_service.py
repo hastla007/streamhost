@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import asc, select
+from sqlalchemy import asc, func, select
+from sqlalchemy.exc import InvalidRequestError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.models import MediaAsset, PlaylistEntry
@@ -10,24 +11,27 @@ from app.schemas import PlaylistCreate, PlaylistGenerationRequest, PlaylistItem
 from app.services.playlist_scheduler import playlist_scheduler
 
 
-def list_playlist(db: Session) -> list[PlaylistItem]:
-    entries = (
-        db.execute(select(PlaylistEntry).order_by(asc(PlaylistEntry.position), asc(PlaylistEntry.id)))
-        .scalars()
-        .all()
+def list_playlist(db: Session, *, limit: int | None = None, offset: int = 0) -> list[PlaylistItem]:
+    stmt = (
+        select(PlaylistEntry)
+        .order_by(asc(PlaylistEntry.position), asc(PlaylistEntry.id))
+        .offset(offset)
     )
-    return [
-        PlaylistItem(
-            id=entry.id,
-            media_id=entry.media_id,
-            title=entry.media.title,
-            genre=entry.media.genre,
-            duration_seconds=entry.media.duration_seconds,
-            scheduled_start=entry.scheduled_start,
-        )
-        for entry in entries
-        if entry.media
-    ]
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    entries = db.execute(stmt).scalars().all()
+    return _serialize_entries(entries)
+
+
+def paginate_playlist(db: Session, *, limit: int, offset: int) -> tuple[list[PlaylistItem], int]:
+    items = list_playlist(db, limit=limit, offset=offset)
+    total = db.scalar(select(func.count()).select_from(PlaylistEntry)) or 0
+    return items, total
+
+
+def count_playlist(db: Session) -> int:
+    return db.scalar(select(func.count()).select_from(PlaylistEntry)) or 0
 
 
 def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
@@ -37,7 +41,7 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
     if media is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Media item must be provided")
 
-    position = db.scalar(select(PlaylistEntry.position).order_by(PlaylistEntry.position.desc())) or 0
+    position = _current_max_position(db)
     entry = PlaylistEntry(
         media_id=media.id,
         scheduled_start=payload.scheduled_start,
@@ -71,7 +75,7 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
     if not planned_items:
         return []
 
-    position = db.scalar(select(PlaylistEntry.position).order_by(PlaylistEntry.position.desc())) or 0
+    position = _current_max_position(db)
     created: list[PlaylistItem] = []
 
     for offset, item in enumerate(planned_items, start=1):
@@ -98,3 +102,34 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
         )
 
     return created
+
+
+def _current_max_position(db: Session) -> int:
+    stmt = (
+        select(PlaylistEntry.position)
+        .order_by(PlaylistEntry.position.desc())
+        .limit(1)
+    )
+    try:
+        stmt = stmt.with_for_update()
+        result = db.scalar(stmt)
+    except (InvalidRequestError, OperationalError):
+        result = db.scalar(
+            select(PlaylistEntry.position).order_by(PlaylistEntry.position.desc()).limit(1)
+        )
+    return result or 0
+
+
+def _serialize_entries(entries: list[PlaylistEntry]) -> list[PlaylistItem]:
+    return [
+        PlaylistItem(
+            id=entry.id,
+            media_id=entry.media_id,
+            title=entry.media.title,
+            genre=entry.media.genre,
+            duration_seconds=entry.media.duration_seconds,
+            scheduled_start=entry.scheduled_start,
+        )
+        for entry in entries
+        if entry.media
+    ]

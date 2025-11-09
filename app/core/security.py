@@ -81,7 +81,11 @@ class DistributedRateLimiter:
         self.calls = calls
         self.period = period
         self.use_redis = redis_client is not None
-        self._memory_fallback = RateLimiter(calls, period) if not self.use_redis else None
+        self._memory_fallback = (
+            RateLimiter(calls, period, settings.rate_limit_max_keys)
+            if not self.use_redis
+            else None
+        )
 
     def check(self, identifier: str) -> None:
         if not self.use_redis:

@@ -64,6 +64,25 @@
         {% endfor %}
       </tbody>
     </table>
+    <div class="pagination-bar">
+      <span>
+        Page {{ playlist_pagination.page }} of {{ playlist_pagination.pages }} • {{ playlist_pagination.total }} items
+      </span>
+      <div class="actions">
+        {% if playlist_pagination.page > 1 %}
+        <a
+          class="btn ghost"
+          href="{{ request.url.path }}?playlist_page={{ playlist_pagination.page - 1 }}&playlist_page_size={{ playlist_pagination.page_size }}&media_page={{ media_pagination.page }}&media_page_size={{ media_pagination.page_size }}"
+        >Previous</a>
+        {% endif %}
+        {% if playlist_pagination.page < playlist_pagination.pages %}
+        <a
+          class="btn ghost"
+          href="{{ request.url.path }}?playlist_page={{ playlist_pagination.page + 1 }}&playlist_page_size={{ playlist_pagination.page_size }}&media_page={{ media_pagination.page }}&media_page_size={{ media_pagination.page_size }}"
+        >Next</a>
+        {% endif %}
+      </div>
+    </div>
   </article>
 
   <article class="card">
@@ -84,6 +103,25 @@
         <span class="meta">720p • 2.5 Mbps • 30 FPS</span>
       </li>
     </ul>
+    <p class="hint">
+      Showing {{ media_pagination.page_size }} media options out of {{ media_pagination.total }} available.
+    </p>
+    <div class="pagination-bar">
+      <div class="actions">
+        {% if media_pagination.page > 1 %}
+        <a
+          class="btn ghost"
+          href="{{ request.url.path }}?playlist_page={{ playlist_pagination.page }}&playlist_page_size={{ playlist_pagination.page_size }}&media_page={{ media_pagination.page - 1 }}&media_page_size={{ media_pagination.page_size }}"
+        >Previous</a>
+        {% endif %}
+        {% if media_pagination.page < media_pagination.pages %}
+        <a
+          class="btn ghost"
+          href="{{ request.url.path }}?playlist_page={{ playlist_pagination.page }}&playlist_page_size={{ playlist_pagination.page_size }}&media_page={{ media_pagination.page + 1 }}&media_page_size={{ media_pagination.page_size }}"
+        >Next</a>
+        {% endif %}
+      </div>
+    </div>
   </article>
 </section>
 {% endblock %}

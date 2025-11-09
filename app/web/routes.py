@@ -1,9 +1,10 @@
 """Server-rendered pages for the StreamHost dashboard."""
 from __future__ import annotations
 
+import math
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from starlette import status
@@ -32,7 +33,7 @@ def _common_context(request: Request) -> dict:
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     context = _common_context(request)
-    playlist_preview = playlist_service.list_playlist(db)[:3]
+    playlist_preview = playlist_service.list_playlist(db, limit=3)
     stream = await stream_manager.status()
     context.update(
         {
@@ -46,9 +47,49 @@ async def home(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
 
 
 @router.get("/playlist", response_class=HTMLResponse)
-def playlist(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+def playlist(
+    request: Request,
+    playlist_page: Annotated[int, Query(ge=1, alias="playlist_page")] = 1,
+    playlist_page_size: Annotated[int, Query(ge=1, le=200, alias="playlist_page_size")] = 25,
+    media_page: Annotated[int, Query(ge=1, alias="media_page")] = 1,
+    media_page_size: Annotated[int, Query(ge=1, le=100, alias="media_page_size")] = 25,
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
     context = _common_context(request)
-    context.update({"playlist": playlist_service.list_playlist(db), "media": media_service.list_media(db)})
+    playlist_offset = (playlist_page - 1) * playlist_page_size
+    playlist_items, playlist_total = playlist_service.paginate_playlist(
+        db, limit=playlist_page_size, offset=playlist_offset
+    )
+    playlist_pages = max(1, math.ceil(playlist_total / playlist_page_size))
+
+    media_offset = (media_page - 1) * media_page_size
+    media_items, media_total = media_service.paginate_media(
+        db, limit=media_page_size, offset=media_offset
+    )
+    media_pages = max(1, math.ceil(media_total / media_page_size))
+
+    context.update(
+        {
+            "playlist": playlist_items,
+            "playlist_pagination": {
+                "page": playlist_page,
+                "pages": playlist_pages,
+                "page_size": playlist_page_size,
+                "total": playlist_total,
+                "page_param": "playlist_page",
+                "size_param": "playlist_page_size",
+            },
+            "media": media_items,
+            "media_pagination": {
+                "page": media_page,
+                "pages": media_pages,
+                "page_size": media_page_size,
+                "total": media_total,
+                "page_param": "media_page",
+                "size_param": "media_page_size",
+            },
+        }
+    )
     return templates.TemplateResponse("playlist.html", context)
 
 
@@ -87,9 +128,27 @@ async def playlist_remove(
 
 
 @router.get("/media", response_class=HTMLResponse)
-def media(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+def media(
+    request: Request,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 24,
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
     context = _common_context(request)
-    context.update({"media": media_service.list_media(db)})
+    offset = (page - 1) * page_size
+    media_items, total = media_service.paginate_media(db, limit=page_size, offset=offset)
+    pages = max(1, math.ceil(total / page_size))
+    context.update(
+        {
+            "media": media_items,
+            "media_pagination": {
+                "page": page,
+                "pages": pages,
+                "page_size": page_size,
+                "total": total,
+            },
+        }
+    )
     return templates.TemplateResponse("media.html", context)
 
 

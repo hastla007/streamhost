@@ -1,27 +1,39 @@
 """Media library endpoints."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.database import get_db
 from app.core.security import csrf_protect, enforce_rate_limit
-from app.schemas import MediaList, MediaUploadMetadata, UploadResponse
+from app.schemas import DEFAULT_ERROR_RESPONSES, MediaList, MediaUploadMetadata, UploadResponse
 from app.services import media_service
 
 router = APIRouter(dependencies=[Depends(enforce_rate_limit), Depends(get_current_user)])
 
 
-@router.get("", response_model=MediaList)
-def list_media(db: Session = Depends(get_db)) -> MediaList:
+@router.get("", response_model=MediaList, responses=DEFAULT_ERROR_RESPONSES)
+def list_media(
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    db: Session = Depends(get_db),
+) -> MediaList:
     """Return the available media entries."""
 
-    items = media_service.list_media(db)
-    return MediaList(items=items)
+    items, total = media_service.paginate_media(db, limit=limit, offset=offset)
+    return MediaList(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(csrf_protect)])
+@router.post(
+    "/upload",
+    response_model=UploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(csrf_protect)],
+    responses=DEFAULT_ERROR_RESPONSES,
+)
 async def upload_media(
     title: str = Form(...),
     genre: str = Form(...),

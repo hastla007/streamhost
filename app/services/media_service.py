@@ -9,7 +9,7 @@ from pathlib import Path
 import aiofiles
 import magic
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import asc, select
+from sqlalchemy import asc, func, select
 from sqlalchemy.orm import Session
 from werkzeug.utils import secure_filename
 
@@ -88,27 +88,24 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
 
 
 def list_media(db: Session) -> list[MediaItem]:
-    """Return media items sorted by creation date."""
+    """Return all media items sorted by title."""
 
-    items = db.scalars(select(MediaAsset).order_by(asc(MediaAsset.title))).all()
-    return [
-        MediaItem(
-            id=item.id,
-            title=item.title,
-            genre=item.genre,
-            duration_seconds=item.duration_seconds,
-            file_path=item.file_path,
-            created_at=item.created_at,
-            width=item.width,
-            height=item.height,
-            video_codec=item.video_codec,
-            audio_codec=item.audio_codec,
-            bitrate=item.bitrate,
-            frame_rate=item.frame_rate,
-            thumbnail_path=item.thumbnail_path,
-        )
-        for item in items
-    ]
+    records = db.scalars(select(MediaAsset).order_by(asc(MediaAsset.title))).all()
+    return [_to_media_item(item) for item in records]
+
+
+def paginate_media(db: Session, *, limit: int, offset: int) -> tuple[list[MediaItem], int]:
+    """Return a paginated slice of media items and the total count."""
+
+    stmt = (
+        select(MediaAsset)
+        .order_by(asc(MediaAsset.title))
+        .offset(offset)
+        .limit(limit)
+    )
+    records = db.scalars(stmt).all()
+    total = db.scalar(select(func.count()).select_from(MediaAsset)) or 0
+    return [_to_media_item(item) for item in records], total
 
 
 async def create_media(
@@ -143,22 +140,26 @@ async def create_media(
         db.add(asset)
         db.flush()
 
-        return MediaItem(
-            id=asset.id,
-            title=asset.title,
-            genre=asset.genre,
-            duration_seconds=asset.duration_seconds,
-            file_path=asset.file_path,
-            created_at=asset.created_at,
-            width=asset.width,
-            height=asset.height,
-            video_codec=asset.video_codec,
-            audio_codec=asset.audio_codec,
-            bitrate=asset.bitrate,
-            frame_rate=asset.frame_rate,
-            thumbnail_path=asset.thumbnail_path,
-        )
+        return _to_media_item(asset)
     except Exception:
         if destination and destination.exists():
             destination.unlink(missing_ok=True)
         raise
+
+
+def _to_media_item(item: MediaAsset) -> MediaItem:
+    return MediaItem(
+        id=item.id,
+        title=item.title,
+        genre=item.genre,
+        duration_seconds=item.duration_seconds,
+        file_path=item.file_path,
+        created_at=item.created_at,
+        width=item.width,
+        height=item.height,
+        video_codec=item.video_codec,
+        audio_codec=item.audio_codec,
+        bitrate=item.bitrate,
+        frame_rate=item.frame_rate,
+        thumbnail_path=item.thumbnail_path,
+    )

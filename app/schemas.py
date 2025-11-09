@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
+from starlette import status
 
 
 class StreamMetrics(BaseModel):
@@ -28,6 +29,11 @@ class StreamStatus(BaseModel):
     last_error: Optional[str]
     metrics: StreamMetrics
     last_updated: datetime
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
 
 class Alert(BaseModel):
@@ -64,6 +70,9 @@ class PlaylistCreate(BaseModel):
 
 class PlaylistResponse(BaseModel):
     items: list[PlaylistItem]
+    total: int
+    limit: int
+    offset: int
 
 
 class MediaMetadata(BaseModel):
@@ -100,6 +109,9 @@ class MediaItem(BaseModel):
 
 class MediaList(BaseModel):
     items: list[MediaItem]
+    total: int
+    limit: int
+    offset: int
 
 
 class MediaUploadMetadata(BaseModel):
@@ -128,6 +140,21 @@ class HealthResponse(BaseModel):
 class UploadResponse(BaseModel):
     message: str
     media_item: MediaItem
+
+
+class ErrorResponse(BaseModel):
+    detail: str
+
+
+DEFAULT_ERROR_RESPONSES = {
+    status.HTTP_400_BAD_REQUEST: {"model": ErrorResponse},
+    status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse},
+    status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
+    status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+    status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"model": ErrorResponse},
+    status.HTTP_429_TOO_MANY_REQUESTS: {"model": ErrorResponse},
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
+}
 
 
 class PlaylistRules(BaseModel):

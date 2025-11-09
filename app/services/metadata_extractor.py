@@ -57,7 +57,7 @@ class MetadataExtractor:
     def _probe_file(self, filepath: Path) -> _ProbeResult:
         try:
             data = ffmpeg.probe(str(filepath))
-        except ffmpeg.Error as exc:  # pragma: no cover - requires ffmpeg
+        except (ffmpeg.Error, OSError, ValueError) as exc:  # pragma: no cover - depends on ffmpeg
             logger.error("ffprobe failed", exc_info=exc)
             raise RuntimeError("Failed to probe media") from exc
 
