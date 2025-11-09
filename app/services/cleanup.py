@@ -184,7 +184,10 @@ class CleanupService:
             if not directory.exists():
                 continue
             try:
-                total_size = sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
+                def _directory_size() -> int:
+                    return sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
+
+                total_size = await asyncio.to_thread(_directory_size)
                 size_gb = total_size / 1024 / 1024 / 1024
                 if size_gb > self.max_directory_size_gb:
                     logger.warning(

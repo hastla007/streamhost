@@ -248,13 +248,13 @@ class LiveStreamManager:
 
                     self._cleanup_concat()
 
-            if process_to_wait is not None:
-                process_to_wait.terminate()
-                try:
-                    await asyncio.wait_for(process_to_wait.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    process_to_wait.kill()
-                    await process_to_wait.wait()
+                if process_to_wait is not None:
+                    process_to_wait.terminate()
+                    try:
+                        await asyncio.wait_for(process_to_wait.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        process_to_wait.kill()
+                        await process_to_wait.wait()
 
             try:
                 delay = self._retry_calculator.calculate_delay(attempts)
@@ -383,8 +383,10 @@ class LiveStreamManager:
         PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
         threshold_seconds = max(settings.stream_preview_segment_seconds * 3, 30)
         cutoff = datetime.now(timezone.utc).timestamp() - threshold_seconds
-        # Stream start is serialised by the engine lock, so clearing stale files here
-        # will not race with an already running encoder.
+        # _build_command is only called from _launch_process while the engine lock
+        # is held, so removing stale preview artefacts here will not race with an
+        # active encoder in this process. Multi-instance deployments should still
+        # isolate preview directories per host.
         for stale in PREVIEW_DIR.glob("*"):
             try:
                 modified = stale.stat().st_mtime

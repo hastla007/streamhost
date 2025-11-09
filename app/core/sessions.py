@@ -78,7 +78,11 @@ class ServerSession:
             "created_at": self._meta.created_at.isoformat(),
             "last_accessed_at": self._meta.last_accessed_at.isoformat(),
         }
-        return json.dumps(payload)
+        try:
+            return json.dumps(payload)
+        except TypeError as exc:
+            logger.error("Session contains non-serializable data", exc_info=exc)
+            raise ValueError("Session data is not JSON-serializable") from exc
 
     def save(self) -> None:
         payload = self._serialize()
@@ -189,7 +193,15 @@ class ServerSessionMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         if session.is_modified() or SESSION_COOKIE_NAME not in request.cookies:
-            await asyncio.to_thread(session.save)
+            try:
+                await asyncio.to_thread(session.save)
+            except ValueError:
+                logger.warning("Dropping session with non-serializable payload; issuing fresh session")
+                session = self._manager.create()
+                request.state.session = session
+                session_id = session.session_id
+                await asyncio.to_thread(session.save)
+
             response.set_cookie(
                 SESSION_COOKIE_NAME,
                 session_id,

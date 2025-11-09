@@ -88,18 +88,16 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
         if magic is None:
             detected_mime, _ = mimetypes.guess_type(str(temp_destination))
             if not detected_mime:
-                raise ValueError("unknown")
+                temp_destination.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail="Unable to determine media type",
+                )
         else:
             detected_mime = magic.from_file(str(temp_destination), mime=True)
     except MagicError as exc:  # pragma: no cover - depends on libmagic
         temp_destination.unlink(missing_ok=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to inspect media") from exc
-    except ValueError:
-        temp_destination.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Unable to determine media type",
-        )
 
     if detected_mime not in ALLOWED_MIME_TYPES:
         temp_destination.unlink(missing_ok=True)

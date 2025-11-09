@@ -207,15 +207,19 @@ def _persist_playlist_entry(
 
 
 def _serialize_entries(entries: list[PlaylistEntry]) -> list[PlaylistItem]:
-    return [
-        PlaylistItem(
-            id=entry.id,
-            media_id=entry.media_id,
-            title=entry.media.title,
-            genre=entry.media.genre,
-            duration_seconds=entry.media.duration_seconds,
-            scheduled_start=entry.scheduled_start,
+    serialized: list[PlaylistItem] = []
+    for entry in entries:
+        media = entry.media
+        if media is None:
+            continue
+        serialized.append(
+            PlaylistItem(
+                id=entry.id,
+                media_id=entry.media_id,
+                title=media.title,
+                genre=media.genre,
+                duration_seconds=media.duration_seconds,
+                scheduled_start=entry.scheduled_start,
+            )
         )
-        for entry in entries
-        if entry.media
-    ]
+    return serialized

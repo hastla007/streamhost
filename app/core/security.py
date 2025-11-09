@@ -48,10 +48,18 @@ def validate_csrf(request: Request, token: str | None) -> None:
     if not expected or not token:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing CSRF token")
 
-    if expiry is not None and time.time() > float(expiry):
-        session.pop(_CSRF_SESSION_KEY, None)
-        session.pop(_CSRF_EXPIRY_KEY, None)
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF token expired")
+    if expiry is not None:
+        try:
+            expiry_value = float(expiry)
+        except (TypeError, ValueError):
+            session.pop(_CSRF_SESSION_KEY, None)
+            session.pop(_CSRF_EXPIRY_KEY, None)
+            logger.warning("Invalid CSRF expiry encountered; forcing token refresh")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
+        if time.time() > expiry_value:
+            session.pop(_CSRF_SESSION_KEY, None)
+            session.pop(_CSRF_EXPIRY_KEY, None)
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF token expired")
 
     if not secrets.compare_digest(expected, token):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
@@ -79,6 +87,7 @@ class RateLimiter:
                     del self._hits[key]
 
             if identifier not in self._hits and len(self._hits) >= self.max_keys:
+                # Evict the oldest identifier to keep memory usage bounded.
                 self._hits.popitem(last=False)
 
             hits = self._hits.setdefault(identifier, deque())

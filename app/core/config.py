@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 from typing import Any, Optional, Union
 
+from sqlalchemy.engine import make_url
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 from dotenv import load_dotenv
 
@@ -134,6 +136,10 @@ class Settings(BaseModel):
         """Construct a PostgreSQL URL when one is not explicitly provided."""
 
         if self.database_url:
+            try:
+                make_url(self.database_url)
+            except Exception as exc:
+                raise ValueError(f"DATABASE_URL is invalid: {exc}") from exc
             return self
 
         if not self.postgres_password:
