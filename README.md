@@ -72,9 +72,9 @@ sudo systemctl enable postgresql
 
 # Create database and user
 export POSTGRES_PASSWORD="$(openssl rand -base64 18)"
-sudo -u postgres psql <<'EOF'
+sudo -u postgres psql -v password="$POSTGRES_PASSWORD" <<'EOF'
 CREATE DATABASE moviestream;
-CREATE USER streamadmin WITH PASSWORD '${POSTGRES_PASSWORD}';
+CREATE USER streamadmin WITH PASSWORD :'password';
 GRANT ALL PRIVILEGES ON DATABASE moviestream TO streamadmin;
 \q
 EOF

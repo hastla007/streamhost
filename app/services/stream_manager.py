@@ -191,6 +191,7 @@ class StreamManager:
                 .scalars()
                 .all()
             )
+            # Collect from the selected entry onward to keep playback continuous.
             for entry in entries:
                 if entry.id == playlist_entry_id or media_paths:
                     if entry.media and entry.media.file_path:

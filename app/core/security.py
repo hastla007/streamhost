@@ -87,7 +87,7 @@ def _init_redis_client() -> Optional[Redis]:  # pragma: no cover - external depe
             socket_connect_timeout=5,
         )
         client.ping()
-        logger.info("Redis client initialised", extra={"url": settings.redis_url.split("@")[ -1 ]})
+        logger.info("Redis client initialised", extra={"url": settings.redis_url.split("@")[-1]})
         return client
     except (redis_exceptions.ConnectionError, redis_exceptions.TimeoutError) as exc:
         logger.warning(

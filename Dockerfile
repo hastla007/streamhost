@@ -21,8 +21,8 @@ COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel \
-    && if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi \
-    && if [ -f requirements-dev.txt ]; then pip install --no-cache-dir -r requirements-dev.txt; fi
+    && if [ -f requirements.txt ]; then pip install -r requirements.txt; fi \
+    && if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
 # Ensure directories expected by the application exist
 RUN mkdir -p /app/data/movies /app/data/cache /app/data/assets /app/data/backups

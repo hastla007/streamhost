@@ -340,6 +340,8 @@ class LiveStreamManager:
         for stale in PREVIEW_DIR.glob("*"):
             if stale.is_file():
                 stale.unlink(missing_ok=True)
+            elif stale.is_dir():
+                shutil.rmtree(stale, ignore_errors=True)
 
         input_opts = [
             "ffmpeg",

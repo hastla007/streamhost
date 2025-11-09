@@ -112,6 +112,9 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
 def _reserve_next_position(db: Session) -> int:
     """Return the next available playlist position using a locked query."""
 
+    # The FOR UPDATE clause serialises concurrent callers so each transaction
+    # observes a unique maximum before inserting. If cross-database support is
+    # required in the future we can replace this with a dedicated sequence.
     result = db.execute(
         text(
             "SELECT position FROM playlist_entry ORDER BY position DESC LIMIT 1 FOR UPDATE"
