@@ -62,16 +62,40 @@ class RateLimiter:
 
 redis_client: Optional[Redis] = None
 
-try:  # pragma: no cover - depends on external service
-    redis_client = Redis.from_url(
-        settings.redis_url,
-        decode_responses=True,
-        socket_connect_timeout=5,
-    )
-    redis_client.ping()
-except Exception as exc:  # pragma: no cover - external dependency
-    redis_client = None
-    print(f"WARNING: Redis unavailable, falling back to in-memory rate limiting: {exc}")
+
+def _init_redis_client() -> Optional[Redis]:  # pragma: no cover - external dependency
+    try:
+        client = Redis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=5,
+        )
+        client.ping()
+        return client
+    except Exception as exc:
+        print(f"WARNING: Redis unavailable, falling back to in-memory rate limiting: {exc}")
+        return None
+
+
+def check_redis_connection() -> bool:
+    """Ensure the Redis client is connected before use."""
+
+    global redis_client
+
+    if redis_client is None:
+        redis_client = _init_redis_client()
+        if redis_client is None:
+            return False
+
+    try:
+        redis_client.ping()
+        return True
+    except Exception:
+        redis_client = None
+        return False
+
+
+redis_client = _init_redis_client()
 
 
 class DistributedRateLimiter:
@@ -80,16 +104,16 @@ class DistributedRateLimiter:
     def __init__(self, calls: int, period: int) -> None:
         self.calls = calls
         self.period = period
-        self.use_redis = redis_client is not None
-        self._memory_fallback = (
-            RateLimiter(calls, period, settings.rate_limit_max_keys)
-            if not self.use_redis
-            else None
-        )
+        self._memory_fallback: Optional[RateLimiter] = None
 
     def check(self, identifier: str) -> None:
-        if not self.use_redis:
-            assert self._memory_fallback is not None
+        if not check_redis_connection():
+            if self._memory_fallback is None:
+                self._memory_fallback = RateLimiter(
+                    self.calls,
+                    self.period,
+                    settings.rate_limit_max_keys,
+                )
             self._memory_fallback.check(identifier)
             return
 

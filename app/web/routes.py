@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from typing import Annotated
+from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -22,7 +22,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
 
-def _common_context(request: Request) -> dict:
+def _common_context(request: Request) -> Dict[str, Any]:
     csrf_token = request.session.get("_csrf_token") or generate_csrf_token(request)
     return {
         "request": request,

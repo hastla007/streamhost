@@ -79,16 +79,27 @@ class LiveStreamManager:
         """Internal helper to tear down state while the lock is held."""
 
         current = asyncio.current_task()
+        tasks_to_cancel: list[asyncio.Task] = []
 
         if self._watchdog_task:
-            if self._watchdog_task is not current:
-                self._watchdog_task.cancel()
+            task = self._watchdog_task
             self._watchdog_task = None
+            if task is not current:
+                task.cancel()
+                tasks_to_cancel.append(task)
 
         if self._progress_task:
-            if self._progress_task is not current:
-                self._progress_task.cancel()
+            task = self._progress_task
             self._progress_task = None
+            if task is not current:
+                task.cancel()
+                tasks_to_cancel.append(task)
+
+        for task in tasks_to_cancel:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
         if self._process and self._process.returncode is None:
             self._process.terminate()

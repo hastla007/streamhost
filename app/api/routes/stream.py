@@ -123,7 +123,7 @@ async def health_check() -> HealthResponse:
         )
         if result.returncode != 0:
             issues.append("FFmpeg: Not available")
-    except Exception as exc:  # pragma: no cover - depends on ffmpeg availability
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as exc:  # pragma: no cover - depends on ffmpeg availability
         issues.append(f"FFmpeg: {exc}")
 
     if not issues:

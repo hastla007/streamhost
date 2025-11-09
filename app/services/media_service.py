@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 from datetime import datetime
+import uuid
 from pathlib import Path
 
 import aiofiles
@@ -42,8 +43,9 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
     if not safe_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to derive a safe filename")
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    destination = MEDIA_ROOT / f"{timestamp}_{safe_name}"
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+    unique_id = uuid.uuid4().hex[:8]
+    destination = MEDIA_ROOT / f"{timestamp}_{unique_id}_{safe_name}"
 
     MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -97,14 +99,17 @@ def list_media(db: Session) -> list[MediaItem]:
 def paginate_media(db: Session, *, limit: int, offset: int) -> tuple[list[MediaItem], int]:
     """Return a paginated slice of media items and the total count."""
 
+    total = db.scalar(select(func.count()).select_from(MediaAsset)) or 0
+    max_offset = max(0, total - 1)
+    safe_offset = min(offset, max_offset)
+
     stmt = (
         select(MediaAsset)
         .order_by(asc(MediaAsset.title))
-        .offset(offset)
+        .offset(safe_offset)
         .limit(limit)
     )
     records = db.scalars(stmt).all()
-    total = db.scalar(select(func.count()).select_from(MediaAsset)) or 0
     return [_to_media_item(item) for item in records], total
 
 

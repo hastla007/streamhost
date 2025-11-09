@@ -24,8 +24,11 @@ def list_playlist(db: Session, *, limit: int | None = None, offset: int = 0) -> 
 
 
 def paginate_playlist(db: Session, *, limit: int, offset: int) -> tuple[list[PlaylistItem], int]:
-    items = list_playlist(db, limit=limit, offset=offset)
     total = db.scalar(select(func.count()).select_from(PlaylistEntry)) or 0
+    max_offset = max(0, total - 1)
+    safe_offset = min(offset, max_offset)
+
+    items = list_playlist(db, limit=limit, offset=safe_offset)
     return items, total
 
 
