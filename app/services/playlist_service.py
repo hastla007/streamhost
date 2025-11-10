@@ -7,7 +7,7 @@ from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import asc, func, select
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -84,14 +84,7 @@ def add_playlist_item(db: Session, payload: PlaylistCreate) -> PlaylistItem:
                     "error": str(exc),
                 },
             )
-        except SQLAlchemyError as exc:
-            db.rollback()
-            if attempt == MAX_POSITION_RETRIES - 1:
-                raise
-            logger.warning(
-                "Database error while reserving playlist position; retrying",  # pragma: no cover - logging only
-                extra={"attempt": attempt + 1, "media_id": payload.media_id, "error": str(exc)},
-            )
+        
 
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -151,19 +144,6 @@ def generate_playlist(db: Session, request: PlaylistGenerationRequest) -> list[P
                         "error": str(exc),
                     },
                 )
-            except SQLAlchemyError as exc:
-                db.rollback()
-                if attempt == MAX_POSITION_RETRIES - 1:
-                    raise
-                logger.warning(
-                    "Database error while generating playlist; retrying",  # pragma: no cover - logging only
-                    extra={
-                        "attempt": attempt + 1,
-                        "media_id": media.id,
-                        "strategy": request.strategy,
-                        "error": str(exc),
-                    },
-                )
 
         if entry is None:
             logger.error(
@@ -200,9 +180,11 @@ def _reserve_next_position(db: Session) -> int:
     if dialect_name == "sqlite":
         try:
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
-        except Exception:
+        except OperationalError as exc:
+            message = str(exc).lower()
+            if "transaction" not in message:
+                raise
             # Transaction already active; SQLite implicitly serialises writes.
-            pass
         counter = db.execute(stmt).scalars().first()
     else:
         counter = db.execute(stmt.with_for_update()).scalars().first()

@@ -34,6 +34,7 @@ class BaseContext(TypedDict):
 
     request: Request
     csrf_token: str
+    current_year: int
 
 
 class HomeContext(BaseContext, total=False):

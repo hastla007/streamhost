@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -16,7 +17,7 @@ from app.core.exceptions import StreamingError
 from app.models import MediaAsset, PlaylistEntry, StreamSession
 from app.schemas import StreamMetrics, StreamStatus
 from app.services.stream_engine import StreamLaunchPlan, live_stream_engine
-from app.utils import ObservedLock
+from app.utils import LockAcquisitionTimeout, ObservedLock
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +26,13 @@ class StreamManager:
     """Controls the lifetime of the ffmpeg streaming process."""
 
     def __init__(self) -> None:
-        self._lock = ObservedLock("stream_manager_lock")
+        self._lock = ObservedLock(
+            "stream_manager_lock", default_timeout=settings.lock_acquire_timeout_seconds
+        )
         self._session_id: Optional[int] = None
         self._destination: Optional[str] = None
         self._encoder_name: str = "ffmpeg"
+        self._hardware_probe_cache: dict[str, bool] = {}
 
     async def start(
         self,
@@ -37,155 +41,170 @@ class StreamManager:
         playlist_entry_id: Optional[int] = None,
         media_id: Optional[int] = None,
     ) -> StreamStatus:
-        async with self._lock:
-            if await live_stream_engine.is_running():
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stream already running")
+        try:
+            async with self._lock:
+                if await live_stream_engine.is_running():
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Stream already running")
 
-            destination = self._resolve_destination()
-            media_files, first_media_id = self._collect_media_files(db, playlist_entry_id, media_id)
-            if not media_files:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No media available to stream")
+                destination = self._resolve_destination()
+                media_files, first_media_id = self._collect_media_files(db, playlist_entry_id, media_id)
+                if not media_files:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No media available to stream")
 
-            profiles = self._build_profiles()
-            encoder, preset = self._resolve_encoder()
+                profiles = self._build_profiles()
+                encoder, preset = self._resolve_encoder()
 
-            plan = StreamLaunchPlan(
-                playlist_id=playlist_entry_id or 0,
-                media_files=media_files,
-                destination=destination,
-                profiles=profiles,
-                encoder=encoder,
-                preset=preset,
-                fps=settings.stream_fps,
-            )
+                plan = StreamLaunchPlan(
+                    playlist_id=playlist_entry_id or 0,
+                    media_files=media_files,
+                    destination=destination,
+                    profiles=profiles,
+                    encoder=encoder,
+                    preset=preset,
+                    fps=settings.stream_fps,
+                )
 
-            session = StreamSession(
-                media_id=first_media_id,
-                status="starting",
-                started_at=datetime.now(timezone.utc),
-            )
-            try:
-                db.add(session)
+                session = StreamSession(
+                    media_id=first_media_id,
+                    status="starting",
+                    started_at=datetime.now(timezone.utc),
+                )
+                try:
+                    db.add(session)
+                    db.flush()
+                except IntegrityError as exc:
+                    logger.error("Database integrity violation when creating stream session", extra={"error": str(exc)})
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Conflicting stream session",
+                    ) from exc
+                except SQLAlchemyError as exc:
+                    logger.error("Database error creating stream session", extra={"error": str(exc)})
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to create stream session",
+                    ) from exc
+
+                self._session_id = session.id
+
+                try:
+                    await live_stream_engine.start_stream(plan)
+                except FileNotFoundError as exc:
+                    session.status = "error"
+                    session.last_error = f"Media file not found: {exc}"
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                    self._session_id = None
+                    self._destination = None
+                    self._encoder_name = "ffmpeg"
+                    logger.warning("Media file missing during stream start", extra={"error": str(exc)})
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Requested media file is no longer available",
+                    ) from exc
+                except (OSError, PermissionError) as exc:
+                    session.status = "error"
+                    session.last_error = f"File access error: {exc}"
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                    self._session_id = None
+                    self._destination = None
+                    self._encoder_name = "ffmpeg"
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Cannot access media files",
+                    ) from exc
+                except StreamingError as exc:
+                    session.status = "error"
+                    session.last_error = str(exc)
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                    self._session_id = None
+                    self._destination = None
+                    self._encoder_name = "ffmpeg"
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=str(exc),
+                    ) from exc
+                except Exception as exc:
+                    session.status = "error"
+                    session.last_error = f"Unexpected error: {type(exc).__name__}"
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                    self._session_id = None
+                    self._destination = None
+                    self._encoder_name = "ffmpeg"
+                    logger.exception("Unexpected failure starting stream")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Unexpected streaming error",
+                    ) from exc
+
+                session.status = "online"
+                session.last_error = None
                 db.flush()
-            except IntegrityError as exc:
-                logger.error("Database integrity violation when creating stream session", extra={"error": str(exc)})
-                db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Conflicting stream session",
-                ) from exc
-            except SQLAlchemyError as exc:
-                logger.error("Database error creating stream session", extra={"error": str(exc)})
-                db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create stream session",
-                ) from exc
-
-            self._session_id = session.id
-
-            try:
-                await live_stream_engine.start_stream(plan)
-            except FileNotFoundError as exc:
-                session.status = "error"
-                session.last_error = f"Media file not found: {exc}"
                 try:
                     db.commit()
-                except Exception:
+                except Exception as exc:
                     db.rollback()
-                self._session_id = None
-                self._destination = None
-                self._encoder_name = "ffmpeg"
-                logger.warning("Media file missing during stream start", extra={"error": str(exc)})
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Requested media file is no longer available",
-                ) from exc
-            except (OSError, PermissionError) as exc:
-                session.status = "error"
-                session.last_error = f"File access error: {exc}"
-                try:
-                    db.commit()
-                except Exception:
-                    db.rollback()
-                self._session_id = None
-                self._destination = None
-                self._encoder_name = "ffmpeg"
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Cannot access media files",
-                ) from exc
-            except StreamingError as exc:
-                session.status = "error"
-                session.last_error = str(exc)
-                try:
-                    db.commit()
-                except Exception:
-                    db.rollback()
-                self._session_id = None
-                self._destination = None
-                self._encoder_name = "ffmpeg"
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=str(exc),
-                ) from exc
-            except Exception as exc:
-                session.status = "error"
-                session.last_error = f"Unexpected error: {type(exc).__name__}"
-                try:
-                    db.commit()
-                except Exception:
-                    db.rollback()
-                self._session_id = None
-                self._destination = None
-                self._encoder_name = "ffmpeg"
-                logger.exception("Unexpected failure starting stream")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Unexpected streaming error",
-                ) from exc
+                    self._session_id = None
+                    self._destination = None
+                    self._encoder_name = "ffmpeg"
+                    await live_stream_engine.stop_stream()
+                    logger.exception("Failed to commit stream session state", extra={"error": str(exc)})
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to persist stream session",
+                    ) from exc
 
-            session.status = "online"
-            session.last_error = None
-            db.flush()
-            try:
-                db.commit()
-            except Exception as exc:
-                db.rollback()
-                self._session_id = None
-                self._destination = None
-                self._encoder_name = "ffmpeg"
-                await live_stream_engine.stop_stream()
-                logger.exception("Failed to commit stream session state", extra={"error": str(exc)})
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to persist stream session",
-                ) from exc
+                self._destination = destination
+                self._encoder_name = self._encoder_display(encoder)
 
-            self._destination = destination
-            self._encoder_name = self._encoder_display(encoder)
+        except LockAcquisitionTimeout as exc:  # pragma: no cover - defensive
+            logger.error("Stream manager busy", extra={"error": str(exc)})
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Stream manager is busy",
+            ) from exc
 
         return await self.status()
 
     async def stop(self, db: Session) -> None:
-        async with self._lock:
-            try:
-                await live_stream_engine.stop_stream()
-                if self._session_id:
-                    session = db.get(StreamSession, self._session_id)
-                    if session:
-                        session.status = "offline"
-                        session.ended_at = datetime.now(timezone.utc)
-                        db.flush()
-                db.commit()
-            except Exception as exc:
-                db.rollback()
-                logger.exception("Failed to persist stream stop", extra={"error": str(exc)})
-                raise
-            finally:
-                self._session_id = None
-                self._destination = None
-                self._encoder_name = "ffmpeg"
+        try:
+            async with self._lock:
+                try:
+                    await live_stream_engine.stop_stream()
+                    if self._session_id:
+                        session = db.get(StreamSession, self._session_id)
+                        if session:
+                            session.status = "offline"
+                            session.ended_at = datetime.now(timezone.utc)
+                            db.flush()
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    logger.exception("Failed to persist stream stop", extra={"error": str(exc)})
+                    raise
+                finally:
+                    self._session_id = None
+                    self._destination = None
+                    self._encoder_name = "ffmpeg"
+        except LockAcquisitionTimeout as exc:  # pragma: no cover - defensive
+            logger.error("Stream manager busy during stop", extra={"error": str(exc)})
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Stream manager is busy",
+            ) from exc
 
     async def status(self) -> StreamStatus:
         snapshot = await live_stream_engine.status_snapshot()
@@ -298,7 +317,13 @@ class StreamManager:
     def _resolve_encoder(self) -> tuple[str, str]:
         hardware = settings.stream_hardware_accel.lower()
         if hardware in {"nvenc", "qsv", "videotoolbox"}:
-            return hardware, "fast"
+            if self._hardware_supported(hardware):
+                return hardware, "fast"
+            logger.warning(
+                "Requested hardware acceleration unavailable; falling back to libx264",
+                extra={"hardware": hardware},
+            )
+            return "libx264", "veryfast"
         if hardware == "auto":
             return "libx264", "veryfast"
         return hardware or "libx264", "veryfast"
@@ -310,6 +335,37 @@ class StreamManager:
             "videotoolbox": "h264_videotoolbox",
         }
         return mapping.get(encoder, encoder)
+
+    def _hardware_supported(self, hardware: str) -> bool:
+        if hardware in self._hardware_probe_cache:
+            return self._hardware_probe_cache[hardware]
+
+        encoder_map = {
+            "nvenc": "h264_nvenc",
+            "qsv": "h264_qsv",
+            "videotoolbox": "h264_videotoolbox",
+        }
+        target = encoder_map.get(hardware, hardware)
+
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-encoders"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning(
+                "Failed to probe FFmpeg encoders for hardware availability",
+                extra={"error": str(exc)},
+            )
+            self._hardware_probe_cache[hardware] = False
+            return False
+
+        supported = target in result.stdout
+        self._hardware_probe_cache[hardware] = supported
+        return supported
 
 
 stream_manager = StreamManager()

@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.config import settings
+from app.services.locks import preview_directory_lock
+from app.utils import LockAcquisitionTimeout
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,7 @@ class CleanupService:
 
         thumbnail_result, preview_result, concat_result = await asyncio.gather(
             asyncio.to_thread(self._cleanup_thumbnails),
-            asyncio.to_thread(self._cleanup_preview_segments),
+            self._cleanup_preview_segments(),
             asyncio.to_thread(self._cleanup_concat_files),
             return_exceptions=True,
         )
@@ -128,7 +130,25 @@ class CleanupService:
                 logger.warning("Failed to remove thumbnail", extra={"path": str(thumbnail)})
         return removed, bytes_freed
 
-    def _cleanup_preview_segments(self) -> tuple[int, int]:
+    async def _cleanup_preview_segments(self) -> tuple[int, int]:
+        try:
+            acquired = await preview_directory_lock.acquire(
+                timeout=settings.lock_acquire_timeout_seconds
+            )
+        except LockAcquisitionTimeout as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to lock preview directory for cleanup", extra={"error": str(exc)})
+            return 0, 0
+
+        if not acquired:
+            logger.debug("Preview cleanup skipped due to busy writer")
+            return 0, 0
+
+        try:
+            return await asyncio.to_thread(self._cleanup_preview_segments_sync)
+        finally:
+            preview_directory_lock.release()
+
+    def _cleanup_preview_segments_sync(self) -> tuple[int, int]:
         if not self.preview_dir.exists():
             return 0, 0
         cutoff = datetime.now() - timedelta(hours=self.preview_max_age_hours)

@@ -72,9 +72,6 @@ def _resolve_preview_asset(name: str) -> Path:
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Excessive URL encoding")
 
-    if any(char in decoded for char in ["/", "\\", "\x00"]) or ".." in decoded:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid asset name")
-
     candidate = PREVIEW_DIR / decoded
     base_dir = PREVIEW_DIR.resolve()
 

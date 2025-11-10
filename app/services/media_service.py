@@ -65,9 +65,19 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
     hasher = hashlib.sha256()
     received = 0
     max_bytes = settings.max_upload_bytes
+    declared_size: int | None = None
+    if upload.headers:
+        size_header = upload.headers.get("content-length")
+        if size_header is not None:
+            try:
+                declared_size = int(size_header)
+            except (TypeError, ValueError):
+                declared_size = None
 
     try:
-        async with aiofiles.open(temp_destination, "xb") as buffer:
+        fd = os.open(temp_destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+        async with aiofiles.open(temp_destination, "wb") as buffer:
             while chunk := await upload.read(8192):
                 received += len(chunk)
                 if received > max_bytes:
@@ -87,6 +97,13 @@ async def _save_upload_securely(upload: UploadFile) -> tuple[Path, int, str, str
         raise
     finally:
         await upload.close()
+
+    if declared_size is not None and received != declared_size:
+        temp_destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file size did not match Content-Length",
+        )
 
     try:
         if magic is None:

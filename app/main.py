@@ -16,7 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api import router as api_router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
-from app.core.middleware import RequestTimeoutMiddleware
+from app.core.middleware import DatabaseCapacityMiddleware, RequestTimeoutMiddleware
 from app.core.security import (
     CSRF_EXPIRY_KEY,
     CSRF_PREVIOUS_KEY,
@@ -24,7 +24,11 @@ from app.core.security import (
     get_session_container,
     redis_client,
 )
-from app.core.sessions import ServerSessionMiddleware, periodic_session_cleanup
+from app.core.sessions import (
+    SESSION_MAX_AGE,
+    ServerSessionMiddleware,
+    periodic_session_cleanup,
+)
 from app.core.types import ASGICallNext
 from app.db.init_db import init_database
 from app.db.migrate import run_migrations
@@ -48,7 +52,7 @@ def create_app() -> FastAPI:
         app.add_middleware(
             SessionMiddleware,
             secret_key=settings.secret_key,
-            max_age=12 * 60 * 60,
+            max_age=SESSION_MAX_AGE,
             same_site="lax",
         )
 
@@ -60,6 +64,10 @@ def create_app() -> FastAPI:
         allow_credentials=True,
     )
     app.add_middleware(RequestTimeoutMiddleware, timeout=settings.request_timeout_seconds)
+    app.add_middleware(
+        DatabaseCapacityMiddleware,
+        threshold=settings.pool_reject_threshold,
+    )
 
     static_dir = Path(__file__).parent / "web" / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")

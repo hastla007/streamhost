@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Deque, List, Optional
 
 
+class LockAcquisitionTimeout(RuntimeError):
+    """Raised when an observed lock cannot be acquired within the timeout."""
+
+
 @dataclass
 class LockSnapshot:
     """Metrics captured for a single observed lock."""
@@ -37,26 +41,45 @@ class LockRegistry:
 class ObservedLock:
     """Wrapper around :class:`asyncio.Lock` with wait/hold instrumentation."""
 
-    __slots__ = ("_name", "_lock", "_wait_times", "_max_wait", "_waiting", "_acquired_at")
+    __slots__ = (
+        "_name",
+        "_lock",
+        "_wait_times",
+        "_max_wait",
+        "_waiting",
+        "_acquired_at",
+        "_default_timeout",
+    )
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, *, default_timeout: Optional[float] = None) -> None:
         self._name = name
         self._lock = asyncio.Lock()
         self._wait_times: Deque[float] = deque(maxlen=100)
         self._max_wait = 0.0
         self._waiting = 0
         self._acquired_at: Optional[float] = None
+        self._default_timeout = default_timeout
         LockRegistry.register(self)
 
     @property
     def name(self) -> str:
         return self._name
 
-    async def acquire(self) -> bool:
+    async def acquire(self, *, timeout: Optional[float] = None) -> bool:
         start = time.monotonic()
         self._waiting += 1
+        wait_timeout = self._default_timeout if timeout is None else timeout
         try:
-            await self._lock.acquire()
+            if wait_timeout is None:
+                await self._lock.acquire()
+            else:
+                await asyncio.wait_for(self._lock.acquire(), wait_timeout)
+        except asyncio.TimeoutError:
+            waited = time.monotonic() - start
+            self._wait_times.append(waited)
+            if waited > self._max_wait:
+                self._max_wait = waited
+            return False
         finally:
             self._waiting -= 1
         waited = time.monotonic() - start
@@ -71,7 +94,11 @@ class ObservedLock:
         self._lock.release()
 
     async def __aenter__(self) -> "ObservedLock":
-        await self.acquire()
+        acquired = await self.acquire()
+        if not acquired:
+            raise LockAcquisitionTimeout(
+                f"Timed out acquiring lock '{self._name}' after {self._default_timeout}s"
+            )
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -115,4 +142,4 @@ def collect_lock_warnings(*, wait_threshold: float, hold_threshold: float) -> Li
     return warnings
 
 
-__all__ = ["ObservedLock", "collect_lock_warnings", "LockSnapshot"]
+__all__ = ["ObservedLock", "collect_lock_warnings", "LockSnapshot", "LockAcquisitionTimeout"]
