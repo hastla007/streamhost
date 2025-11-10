@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -28,7 +29,11 @@ def _common_context(request: Request) -> BaseContext:
     token = session.get("_csrf_token") if session else request.session.get("_csrf_token")
     if token is None:
         token = generate_csrf_token(request)
-    return BaseContext(request=request, csrf_token=token)
+    return BaseContext(
+        request=request,
+        csrf_token=token,
+        current_year=datetime.now().year,
+    )
 
 
 @router.get("/", response_class=HTMLResponse)

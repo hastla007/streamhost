@@ -72,6 +72,11 @@ class Settings(BaseModel):
     request_timeout_seconds: float = Field(30.0, validation_alias="REQUEST_TIMEOUT_SECONDS", ge=0)
     lock_wait_warning_seconds: float = Field(2.0, validation_alias="LOCK_WAIT_WARNING_SECONDS", ge=0)
     lock_hold_warning_seconds: float = Field(10.0, validation_alias="LOCK_HOLD_WARNING_SECONDS", ge=0)
+    lock_acquire_timeout_seconds: float = Field(
+        10.0,
+        validation_alias="LOCK_ACQUIRE_TIMEOUT_SECONDS",
+        ge=0,
+    )
     max_upload_mb: int = Field(512, validation_alias="MAX_UPLOAD_MB", gt=0)
     media_root: str = Field(str(BASE_DIR / "data" / "movies"), validation_alias="MOVIES_DIR")
     log_dir: str = Field(str(BASE_DIR / "data" / "logs"), validation_alias="LOGS_DIR")
@@ -88,6 +93,12 @@ class Settings(BaseModel):
     stream_restart_max_attempts: int = Field(10, validation_alias="STREAM_RESTART_MAX_ATTEMPTS")
     stream_restart_strategy: str = Field("exponential", validation_alias="STREAM_RESTART_STRATEGY")
     stream_preview_segment_seconds: int = Field(4, validation_alias="STREAM_PREVIEW_SEGMENT_SECONDS")
+    pool_reject_threshold: float = Field(
+        0.95,
+        validation_alias="POOL_REJECT_THRESHOLD",
+        ge=0.0,
+        le=1.0,
+    )
 
     class Config:
         populate_by_name = True
@@ -166,8 +177,8 @@ class Settings(BaseModel):
 
         if value < 250:
             raise ValueError("STREAM_BITRATE must be at least 250 kbps")
-        if value > 100_000:
-            raise ValueError("STREAM_BITRATE must be less than or equal to 100000 kbps")
+        if value > 200_000:
+            raise ValueError("STREAM_BITRATE must be less than or equal to 200000 kbps")
         return value
 
     @field_validator("stream_fps")
@@ -195,6 +206,18 @@ class Settings(BaseModel):
             raise ValueError("ADMIN_DEFAULT_PASSWORD must be changed from the default value")
         if len(value) < 12:
             raise ValueError("ADMIN_DEFAULT_PASSWORD must be at least 12 characters long")
+
+        classes = {
+            "lower": any(char.islower() for char in value),
+            "upper": any(char.isupper() for char in value),
+            "digit": any(char.isdigit() for char in value),
+            "symbol": any(not char.isalnum() for char in value),
+        }
+        if not all(classes.values()):
+            raise ValueError(
+                "ADMIN_DEFAULT_PASSWORD must include at least one lowercase letter, "
+                "one uppercase letter, one number, and one symbol"
+            )
         return value
 
     @model_validator(mode="after")

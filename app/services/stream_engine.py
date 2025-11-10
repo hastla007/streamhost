@@ -11,13 +11,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from app.core.config import settings
 from app.core.retry import BackoffStrategy, RetryCalculator, RetryConfig
 from app.core.types import StreamSnapshot
 from app.core.exceptions import StreamingError
 from app.schemas import StreamMetrics
-from app.utils import ObservedLock
+from app.services.locks import preview_directory_lock
+from app.utils import LockAcquisitionTimeout, ObservedLock
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,9 @@ class LiveStreamManager:
     """Manage FFmpeg streaming processes and parse telemetry."""
 
     def __init__(self) -> None:
-        self._lock = ObservedLock("stream_engine_lock")
+        self._lock = ObservedLock(
+            "stream_engine_lock", default_timeout=settings.lock_acquire_timeout_seconds
+        )
         self._process: Optional[asyncio.subprocess.Process] = None
         self._progress_task: Optional[asyncio.Task[None]] = None
         self._watchdog_task: Optional[asyncio.Task[None]] = None
@@ -59,6 +63,7 @@ class LiveStreamManager:
         self._last_success_time: Optional[datetime] = None
         self._stderr_lines: deque[str] = deque(maxlen=50)
         self._is_restarting = False
+        self._preview_lock_owned = False
 
         try:
             strategy = BackoffStrategy(settings.stream_restart_strategy.lower())
@@ -78,33 +83,43 @@ class LiveStreamManager:
     async def start_stream(self, plan: StreamLaunchPlan) -> None:
         """Start streaming using the provided launch plan."""
 
-        async with self._lock:
-            if self._process and self._process.returncode is None:
-                raise RuntimeError("Stream already running")
+        try:
+            async with self._lock:
+                if self._process and self._process.returncode is None:
+                    raise RuntimeError("Stream already running")
 
-            if not plan.media_files:
-                raise ValueError("No media files supplied to stream")
+                if not plan.media_files:
+                    raise ValueError("No media files supplied to stream")
 
-            for path in plan.media_files:
-                if not path.exists():
-                    raise FileNotFoundError(f"Media file missing: {path}")
+                for path in plan.media_files:
+                    if not path.exists():
+                        raise FileNotFoundError(f"Media file missing: {path}")
 
-            self._plan = plan
-            self._playlist_id = plan.playlist_id
-            self._last_error = None
-            self._restart_attempts = 0
-            self._consecutive_failures = 0
-            self._last_success_time = None
-            self._stderr_lines.clear()
-            self._is_restarting = False
+                self._plan = plan
+                self._playlist_id = plan.playlist_id
+                self._last_error = None
+                self._restart_attempts = 0
+                self._consecutive_failures = 0
+                self._last_success_time = None
+                self._stderr_lines.clear()
+                self._is_restarting = False
 
-            await self._launch_process()
+                await self._launch_process()
+        except LockAcquisitionTimeout as exc:  # pragma: no cover - defensive
+            logger.error("Timed out acquiring stream engine lock", extra={"error": str(exc)})
+            raise StreamingError("Unable to start stream: system busy") from exc
 
     async def stop_stream(self) -> None:
         """Terminate the running FFmpeg process and cleanup."""
 
-        async with self._lock:
-            await self._stop_locked()
+        try:
+            async with self._lock:
+                await self._stop_locked()
+        except LockAcquisitionTimeout as exc:  # pragma: no cover - defensive
+            logger.error(
+                "Timed out acquiring stream engine lock for stop", extra={"error": str(exc)}
+            )
+            raise StreamingError("Unable to stop stream: system busy") from exc
 
     async def _stop_locked(self) -> None:
         """Internal helper to tear down state while the lock is held."""
@@ -153,6 +168,7 @@ class LiveStreamManager:
         self._stderr_lines.clear()
         self._is_restarting = False
         self._cleanup_concat()
+        self._release_preview_lock()
 
     async def get_metrics(self) -> StreamMetrics:
         """Return the most recent telemetry snapshot."""
@@ -177,8 +193,20 @@ class LiveStreamManager:
             raise
 
         self._concat_file = concat_file
+
+        if not self._preview_lock_owned:
+            acquired = await preview_directory_lock.acquire(
+                timeout=settings.lock_acquire_timeout_seconds
+            )
+            if not acquired:
+                raise StreamingError("Timed out waiting for preview directory lock")
+            self._preview_lock_owned = True
+
         command = self._build_command(self._plan, concat_file)
-        logger.info("Starting FFmpeg", extra={"command": command})
+        logger.info(
+            "Starting FFmpeg",
+            extra={"command": self._redact_command(command)},
+        )
 
         try:
             self._process = await asyncio.create_subprocess_exec(
@@ -186,9 +214,10 @@ class LiveStreamManager:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
-        except Exception as exc:
+        except (OSError, asyncio.SubprocessError) as exc:
             self._last_error = str(exc)
             logger.exception("Failed to launch FFmpeg")
+            self._release_preview_lock()
             raise StreamingError(f"Failed to launch FFmpeg: {exc}") from exc
 
         self._started_at = datetime.now(timezone.utc)
@@ -440,7 +469,8 @@ class LiveStreamManager:
 
         profiles = plan.profiles
         gop = max(plan.fps * 2, 30)
-        filter_parts = [f"[0:v]split={len(profiles)}" + "".join(f"[v{idx}base]" for idx in range(len(profiles)))]
+        output_labels = "".join(f"[v{idx}base]" for idx in range(len(profiles)))
+        filter_parts = [f"[0:v]split={len(profiles)}{output_labels}"]
         for idx, (resolution, _bitrate) in enumerate(profiles):
             width, height = resolution.split("x")
             filter_parts.append(f"[v{idx}base]scale={width}:{height}[v{idx}]")
@@ -522,6 +552,41 @@ class LiveStreamManager:
         ]
 
         return command
+
+    @staticmethod
+    def _redact_command(command: list[str]) -> list[str]:
+        redacted: list[str] = []
+        for token in command:
+            if token.startswith(("rtmp://", "rtmps://")):
+                parsed = urlsplit(token)
+                if parsed.path:
+                    parts = [part for part in parsed.path.split("/") if part]
+                    if parts:
+                        parts[-1] = "***"
+                    redacted_path = "/".join(parts)
+                    redacted.append(
+                        urlunsplit(
+                            (
+                                parsed.scheme,
+                                parsed.netloc,
+                                f"/{redacted_path}" if redacted_path else "",
+                                parsed.query,
+                                parsed.fragment,
+                            )
+                        )
+                    )
+                    continue
+                redacted.append(f"{parsed.scheme}://{parsed.netloc}/***")
+                continue
+            redacted.append(token)
+        return redacted
+
+    def _release_preview_lock(self) -> None:
+        if self._preview_lock_owned:
+            try:
+                preview_directory_lock.release()
+            finally:
+                self._preview_lock_owned = False
 
     async def status_snapshot(self) -> StreamSnapshot:
         async with self._lock:

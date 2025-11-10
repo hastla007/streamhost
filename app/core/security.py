@@ -1,6 +1,8 @@
 """Security helpers for CSRF protection and rate limiting."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import secrets
 import threading
@@ -35,7 +37,11 @@ def generate_csrf_token(request: Request) -> str:
 
     token = secrets.token_urlsafe(32)
     session = get_session_container(request)
-    session[_CSRF_SESSION_KEY] = token
+    hashed = _sign_csrf_token(token)
+    previous = session.get(_CSRF_SESSION_KEY)
+    if previous:
+        session[_CSRF_PREVIOUS_KEY] = previous
+    session[_CSRF_SESSION_KEY] = hashed
     session[_CSRF_EXPIRY_KEY] = time.time() + settings.csrf_token_ttl_seconds
     return token
 
@@ -65,15 +71,22 @@ def validate_csrf(request: Request, token: str | None) -> None:
             session.pop(_CSRF_PREVIOUS_KEY, None)
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF token expired")
 
-    if secrets.compare_digest(expected, token):
+    presented = _sign_csrf_token(token)
+
+    if secrets.compare_digest(expected, presented):
         session.pop(_CSRF_PREVIOUS_KEY, None)
         return
 
-    if previous and secrets.compare_digest(previous, token):
+    if previous and secrets.compare_digest(previous, presented):
         session.pop(_CSRF_PREVIOUS_KEY, None)
         return
 
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
+
+
+def _sign_csrf_token(token: str) -> str:
+    secret = settings.secret_key.encode("utf-8")
+    return hmac.new(secret, token.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 class RateLimiter:
@@ -85,17 +98,16 @@ class RateLimiter:
         self.max_keys = max_keys
         self._hits: OrderedDict[str, Deque[float]] = OrderedDict()
         self._lock = threading.Lock()
+        self._cleanup_interval = max(1.0, min(float(period), 60.0))
+        self._last_cleanup = time.time()
 
     def check(self, identifier: str) -> None:
         with self._lock:
             now = time.time()
 
-            for key in list(self._hits.keys()):
-                hits = self._hits[key]
-                while hits and now - hits[0] > self.period:
-                    hits.popleft()
-                if not hits:
-                    del self._hits[key]
+            if now - self._last_cleanup >= self._cleanup_interval:
+                self._purge_expired(now)
+                self._last_cleanup = now
 
             if identifier not in self._hits and len(self._hits) >= self.max_keys:
                 # Evict the oldest identifier to keep memory usage bounded.
@@ -110,6 +122,14 @@ class RateLimiter:
                 raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded")
 
             hits.append(now)
+
+    def _purge_expired(self, now: float) -> None:
+        for key in list(self._hits.keys()):
+            hits = self._hits[key]
+            while hits and now - hits[0] > self.period:
+                hits.popleft()
+            if not hits:
+                del self._hits[key]
 
 
 redis_client: Optional[Redis] = None
