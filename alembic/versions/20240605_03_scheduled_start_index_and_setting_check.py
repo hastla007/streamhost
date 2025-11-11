@@ -1,7 +1,7 @@
 """Add scheduled_start index and settings singleton constraint
 
 Revision ID: 20240605_03
-Revises: 20240601_02_playlist_position_counter
+Revises: 20240601_02
 Create Date: 2024-06-05 00:00:00.000000
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "20240605_03"
-down_revision = "20240601_02_playlist_position_counter"
+down_revision = "20240601_02"
 branch_labels = None
 depends_on = None
 
