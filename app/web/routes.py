@@ -12,7 +12,12 @@ from starlette import status
 from starlette.templating import Jinja2Templates
 
 from app.core.database import get_db
-from app.core.security import form_csrf_protect, generate_csrf_token
+from app.core.security import (
+    CSRF_SESSION_KEY,
+    form_csrf_protect,
+    generate_csrf_token,
+    get_session_container,
+)
 from app.core.types import BaseContext, PaginationInfo
 from app.schemas import PlaylistCreate, SystemSettings
 from app.models import MediaAsset
@@ -25,8 +30,8 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 
 def _common_context(request: Request) -> BaseContext:
-    session = getattr(request.state, "session", None)
-    token = session.get("_csrf_token") if session else request.session.get("_csrf_token")
+    session = get_session_container(request)
+    token = session.get(CSRF_SESSION_KEY) if session else None
     if token is None:
         token = generate_csrf_token(request)
     return BaseContext(
