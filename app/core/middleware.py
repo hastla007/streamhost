@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from fastapi import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -10,8 +11,46 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.database import get_pool_status
+from app.core.security import (
+    CSRF_EXPIRY_KEY,
+    CSRF_PREVIOUS_KEY,
+    CSRF_SESSION_KEY,
+    generate_csrf_token,
+    get_session_container,
+)
 
 logger = logging.getLogger("streamhost.request")
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """Ensure requests have an associated CSRF token."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        container = get_session_container(request)
+
+        if container is not None:
+            token = container.get(CSRF_SESSION_KEY)
+            expiry_raw = container.get(CSRF_EXPIRY_KEY)
+            expired = False
+
+            if expiry_raw is not None:
+                try:
+                    expired = time.time() > float(expiry_raw)
+                except (TypeError, ValueError):
+                    expired = True
+
+            if token is None or expired:
+                if token:
+                    container[CSRF_PREVIOUS_KEY] = token
+                container.pop(CSRF_SESSION_KEY, None)
+                container.pop(CSRF_EXPIRY_KEY, None)
+                try:
+                    generate_csrf_token(request)
+                except RuntimeError:
+                    logger.warning("Unable to generate CSRF token; session unavailable")
+
+        response = await call_next(request)
+        return response
 
 
 class RequestTimeoutMiddleware(BaseHTTPMiddleware):
