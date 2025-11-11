@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover - fallback when libmagic unavailable
     magic = None
     MagicError = Exception
 
-MEDIA_ROOT = Path(os.getenv("MOVIES_DIR", settings.media_root))
+MEDIA_ROOT = Path(settings.media_root)
 MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm"}

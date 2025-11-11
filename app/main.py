@@ -3,12 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Request
-from starlette.responses import Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -16,20 +14,13 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api import router as api_router
 from app.core.config import settings
 from app.core.logging_config import configure_logging
-from app.core.middleware import DatabaseCapacityMiddleware, RequestTimeoutMiddleware
-from app.core.security import (
-    CSRF_EXPIRY_KEY,
-    CSRF_PREVIOUS_KEY,
-    generate_csrf_token,
-    get_session_container,
-    redis_client,
-)
+from app.core.middleware import CSRFMiddleware, DatabaseCapacityMiddleware, RequestTimeoutMiddleware
+from app.core.security import redis_client
 from app.core.sessions import (
     SESSION_MAX_AGE,
     ServerSessionMiddleware,
     periodic_session_cleanup,
 )
-from app.core.types import ASGICallNext
 from app.db.init_db import init_database
 from app.db.migrate import run_migrations
 from app.db.session import SessionLocal
@@ -55,6 +46,7 @@ def create_app() -> FastAPI:
             max_age=SESSION_MAX_AGE,
             same_site="lax",
         )
+    app.add_middleware(CSRFMiddleware)
 
     app.add_middleware(
         CORSMiddleware,
@@ -75,36 +67,41 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
     app.include_router(web_router)
 
-    @app.middleware("http")
-    async def add_csrf_token(request: Request, call_next: ASGICallNext) -> Response:
-        """Ensure each session has a CSRF token."""
-
-        container = get_session_container(request)
-        token = container.get("_csrf_token") if container is not None else None
-        expiry_raw = container.get(CSRF_EXPIRY_KEY) if container is not None else None
-        expired = False
-        if expiry_raw is not None:
-            try:
-                expired = time.time() > float(expiry_raw)
-            except (TypeError, ValueError):
-                expired = True
-        if token is None or expired:
-            if container is not None:
-                if token:
-                    container[CSRF_PREVIOUS_KEY] = token
-                container.pop("_csrf_token", None)
-                container.pop(CSRF_EXPIRY_KEY, None)
-            generate_csrf_token(request)
-        response = await call_next(request)
-        return response
-
     session_cleanup_task: Optional[asyncio.Task] = None
 
     @app.on_event("startup")
     async def startup() -> None:
         """Initialise database schema and defaults."""
 
-        run_migrations()
+        attempts = settings.db_migration_max_retries
+        base_delay = settings.db_migration_retry_delay_seconds
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                run_migrations()
+                last_error = None
+                break
+            except Exception as exc:  # pragma: no cover - exercised in integration tests
+                last_error = exc
+                if attempt == attempts:
+                    logger.exception(
+                        "Database migrations failed after %s attempts", attempts
+                    )
+                    raise
+
+                delay = base_delay * (2 ** (attempt - 1))
+                logger.warning(
+                    "Database migration attempt %s/%s failed; retrying in %.1fs",
+                    attempt,
+                    attempts,
+                    delay,
+                    exc_info=exc if settings.debug else None,
+                )
+                await asyncio.sleep(delay)
+
+        if last_error:
+            raise last_error
+
         with SessionLocal() as db:
             init_database(db)
             db.commit()

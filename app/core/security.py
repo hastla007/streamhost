@@ -25,11 +25,13 @@ _CSRF_PREVIOUS_KEY = "_csrf_token_previous"
 
 
 def get_session_container(request: Request):
-    """Return the session container for the request."""
+    """Return the session container for the request if available."""
 
     if hasattr(request.state, "session"):
         return request.state.session
-    return request.session
+    if "session" in request.scope:
+        return request.scope["session"]
+    return None
 
 
 def generate_csrf_token(request: Request) -> str:
@@ -37,6 +39,9 @@ def generate_csrf_token(request: Request) -> str:
 
     token = secrets.token_urlsafe(32)
     session = get_session_container(request)
+    if session is None:
+        logger.error("Session container unavailable when generating CSRF token")
+        raise RuntimeError("Session container unavailable")
     hashed = _sign_csrf_token(token)
     previous = session.get(_CSRF_SESSION_KEY)
     if previous:
@@ -50,6 +55,11 @@ def validate_csrf(request: Request, token: str | None) -> None:
     """Validate the supplied CSRF token against the session."""
 
     session = get_session_container(request)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Session store unavailable",
+        )
     expected = session.get(_CSRF_SESSION_KEY)
     previous = session.get(_CSRF_PREVIOUS_KEY)
     expiry = session.get(_CSRF_EXPIRY_KEY)
