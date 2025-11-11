@@ -60,6 +60,30 @@ def _generate_admin_password(length: int = 16) -> str:
     return "".join(password_chars)
 
 
+def _normalise_directory(path_str: str, *, default: Path, description: str) -> str:
+    """Return a writable directory path, falling back when necessary."""
+
+    candidate = Path(path_str).expanduser()
+    if not candidate.is_absolute():
+        candidate = (BASE_DIR / candidate).resolve()
+
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+    except (PermissionError, OSError) as exc:
+        fallback = default.resolve()
+        fallback.mkdir(parents=True, exist_ok=True)
+        logger.warning(
+            "Unable to create %s at %s (%s); using fallback %s",
+            description,
+            candidate,
+            exc,
+            fallback,
+        )
+        candidate = fallback
+
+    return str(candidate)
+
+
 class Settings(BaseModel):
     """Runtime configuration values for the StreamHost service."""
 
@@ -168,6 +192,25 @@ class Settings(BaseModel):
         if len(value) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters long")
         return value
+
+    @model_validator(mode="after")
+    def normalise_storage_directories(self) -> "Settings":
+        """Ensure storage directories are writable within the container."""
+
+        default_media = BASE_DIR / "data" / "movies"
+        default_logs = BASE_DIR / "data" / "logs"
+
+        self.media_root = _normalise_directory(
+            self.media_root,
+            default=default_media,
+            description="media storage directory",
+        )
+        self.log_dir = _normalise_directory(
+            self.log_dir,
+            default=default_logs,
+            description="log directory",
+        )
+        return self
 
     @field_validator("jwt_secret")
     @classmethod
