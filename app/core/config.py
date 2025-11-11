@@ -1,8 +1,11 @@
 """Application configuration management."""
 from __future__ import annotations
 
+import logging
 import os
 import re
+import secrets
+import string
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
@@ -20,13 +23,49 @@ ENV_FILE = BASE_DIR / ".env"
 
 load_dotenv(ENV_FILE)
 
+logger = logging.getLogger(__name__)
+
+
+def _generate_secret_key() -> str:
+    """Return a cryptographically strong secret key."""
+
+    return secrets.token_urlsafe(64)
+
+
+def _generate_jwt_secret() -> str:
+    """Return a random JWT signing secret."""
+
+    return secrets.token_urlsafe(64)
+
+
+def _generate_admin_password(length: int = 16) -> str:
+    """Generate a strong default administrator password."""
+
+    rng = secrets.SystemRandom()
+    symbols = "!@#$%^&*()-_=+"
+    base_alphabet = string.ascii_letters + string.digits + symbols
+
+    # Ensure the password meets complexity requirements by seeding one
+    # character from each required class before filling the remainder.
+    required = [
+        rng.choice(string.ascii_lowercase),
+        rng.choice(string.ascii_uppercase),
+        rng.choice(string.digits),
+        rng.choice(symbols),
+    ]
+
+    remaining = max(length - len(required), 0)
+    password_chars = required + [rng.choice(base_alphabet) for _ in range(remaining)]
+    rng.shuffle(password_chars)
+    return "".join(password_chars)
+
 
 class Settings(BaseModel):
     """Runtime configuration values for the StreamHost service."""
 
     app_env: str = Field("development", validation_alias="APP_ENV")
     debug: bool = Field(False, validation_alias="DEBUG")
-    secret_key: str = Field(..., validation_alias="SECRET_KEY")
+    secret_key: str = Field(default_factory=_generate_secret_key, validation_alias="SECRET_KEY")
 
     database_url: str | None = Field(None, validation_alias="DATABASE_URL")
     postgres_db: str = Field("moviestream", validation_alias="POSTGRES_DB")
@@ -58,10 +97,13 @@ class Settings(BaseModel):
     sentry_dsn: Optional[str] = Field(None, validation_alias="SENTRY_DSN")
     prometheus_port: int = Field(9090, validation_alias="PROMETHEUS_PORT")
 
-    jwt_secret: str = Field("change-me", validation_alias="JWT_SECRET")
+    jwt_secret: str = Field(default_factory=_generate_jwt_secret, validation_alias="JWT_SECRET")
     jwt_algorithm: str = Field("HS256", validation_alias="JWT_ALGORITHM")
     jwt_expiry_minutes: int = Field(60, validation_alias="JWT_EXPIRY_MINUTES")
-    admin_default_password: str = Field("changeme", validation_alias="ADMIN_DEFAULT_PASSWORD")
+    admin_default_password: str = Field(
+        default_factory=_generate_admin_password,
+        validation_alias="ADMIN_DEFAULT_PASSWORD",
+    )
 
     rate_limit_requests: int = Field(60, validation_alias="RATE_LIMIT_REQUESTS")
     rate_limit_window: int = Field(60, validation_alias="RATE_LIMIT_WINDOW")
@@ -288,6 +330,21 @@ def get_settings() -> Settings:
         "youtube_rtmp_url": os.getenv("YOUTUBE_RTMP_URL"),
     }
     overrides.update({k: v for k, v in env_mappings.items() if v})
+    admin_password = os.getenv("ADMIN_DEFAULT_PASSWORD")
+    if admin_password:
+        if (
+            admin_password not in {"changeme", "change-me", "admin", "password"}
+            and len(admin_password) >= 12
+            and any(char.islower() for char in admin_password)
+            and any(char.isupper() for char in admin_password)
+            and any(char.isdigit() for char in admin_password)
+            and any(not char.isalnum() for char in admin_password)
+        ):
+            overrides["admin_default_password"] = admin_password
+        else:  # pragma: no cover - defensive logging
+            logger.warning(
+                "Ignoring weak ADMIN_DEFAULT_PASSWORD from environment; using generated default."
+            )
     return Settings(**overrides)
 
 
