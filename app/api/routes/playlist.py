@@ -48,6 +48,7 @@ def add_playlist_item(payload: PlaylistCreate, db: Session = Depends(get_db)) ->
 @router.delete(
     "/{item_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 def delete_playlist_item(item_id: int, db: Session = Depends(get_db)) -> None:
     """Remove an item from the playlist if it exists."""
