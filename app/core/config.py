@@ -165,6 +165,16 @@ class Settings(BaseModel):
         ge=0.0,
         le=1.0,
     )
+    db_migration_max_retries: int = Field(
+        5,
+        validation_alias="DB_MIGRATION_MAX_RETRIES",
+        ge=1,
+    )
+    db_migration_retry_delay_seconds: float = Field(
+        2.0,
+        validation_alias="DB_MIGRATION_RETRY_DELAY_SECONDS",
+        ge=0.0,
+    )
 
     class Config:
         populate_by_name = True

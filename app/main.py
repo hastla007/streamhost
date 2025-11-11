@@ -73,7 +73,35 @@ def create_app() -> FastAPI:
     async def startup() -> None:
         """Initialise database schema and defaults."""
 
-        run_migrations()
+        attempts = settings.db_migration_max_retries
+        base_delay = settings.db_migration_retry_delay_seconds
+        last_error: Exception | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                run_migrations()
+                last_error = None
+                break
+            except Exception as exc:  # pragma: no cover - exercised in integration tests
+                last_error = exc
+                if attempt == attempts:
+                    logger.exception(
+                        "Database migrations failed after %s attempts", attempts
+                    )
+                    raise
+
+                delay = base_delay * (2 ** (attempt - 1))
+                logger.warning(
+                    "Database migration attempt %s/%s failed; retrying in %.1fs",
+                    attempt,
+                    attempts,
+                    delay,
+                    exc_info=exc if settings.debug else None,
+                )
+                await asyncio.sleep(delay)
+
+        if last_error:
+            raise last_error
+
         with SessionLocal() as db:
             init_database(db)
             db.commit()
